@@ -1,0 +1,30 @@
+HEXSTRIKE ADDED FEATURES
+========================
+
+1. TOOL DECISION LOGGER
+   Logs every tool chosen by the decision engine to tool_logger.log.
+   Each entry includes: tool name, position in the LLM's chain, effectiveness
+   score, attack chain priority, target, target type, and objective.
+
+   Files:
+   - hexstrike_server.py line 94     : tool_logger file handler setup
+   - hexstrike_server.py line 1005   : _get_attack_chain_priority() — looks up tool priority in attack pattern chains
+   - hexstrike_server.py line 1032   : log_tool_decision() — writes one log entry per tool per scan
+   - hexstrike_server.py line 1095   : call inside select_optimal_tools() — triggers on every scan
+   - tool_logger.log                 : output log file
+
+
+2. LLM AND CLIENT IDENTITY
+   Lets the user set which LLM model and client are being used with HexStrike.
+   Saved to hexstrike_config.json and automatically included in every log entry.
+   Call once to set, call again anytime to update.
+
+   Files:
+   - hexstrike_server.py line 105    : _load_hexstrike_config() — reads config from disk
+   - hexstrike_server.py line 115    : _save_hexstrike_config() — writes config to disk
+   - hexstrike_server.py line 121    : get_llm_identity() — returns current model and client
+   - hexstrike_server.py line 9383   : POST /api/config/set-identity — HTTP endpoint to set identity
+   - hexstrike_server.py line 9405   : GET  /api/config/get-identity — HTTP endpoint to read identity
+   - hexstrike_mcp.py   line 284     : set_llm_identity() — MCP tool to set model and client
+   - hexstrike_mcp.py   line 302     : get_llm_identity() — MCP tool to read current identity
+   - hexstrike_config.json           : persisted identity config file
