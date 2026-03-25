@@ -100,3 +100,13 @@
 2026-03-24 19:14:29,634 | TOOL_DECISION | session=be7ec22e | tool=dalfox | llm_chain_pos=19 | effectiveness_score=0.93 | attack_chain_priority=3 | target=challenge.elf | target_type=web_application | objective=comprehensive
 2026-03-24 19:14:29,634 | TOOL_DECISION | session=be7ec22e | tool=qsreplace | llm_chain_pos=20 | effectiveness_score=0.75 | attack_chain_priority=N/A | target=challenge.elf | target_type=web_application | objective=comprehensive
 2026-03-24 19:14:29,634 | ── END SESSION be7ec22e ──
+2026-03-25 02:27:16,616 | ── SCAN SESSION 168f45aa | target=192.168.1.1 | objective=quick | target_type=network_host | tools_selected=3 | model=claude-3.5-sonnet | client=vscode ──
+2026-03-25 02:27:16,616 | TOOL_DECISION | session=168f45aa | tool=nmap-advanced | llm_chain_pos=1 | effectiveness_score=0.97 | attack_chain_priority=3 | target=192.168.1.1 | target_type=network_host | objective=quick | model=claude-3.5-sonnet | client=vscode
+2026-03-25 02:27:16,616 | TOOL_DECISION | session=168f45aa | tool=nmap | llm_chain_pos=2 | effectiveness_score=0.95 | attack_chain_priority=N/A | target=192.168.1.1 | target_type=network_host | objective=quick | model=claude-3.5-sonnet | client=vscode
+2026-03-25 02:27:16,616 | TOOL_DECISION | session=168f45aa | tool=autorecon | llm_chain_pos=3 | effectiveness_score=0.95 | attack_chain_priority=1 | target=192.168.1.1 | target_type=network_host | objective=quick | model=claude-3.5-sonnet | client=vscode
+2026-03-25 02:27:16,616 | ── END SESSION 168f45aa ──
+2026-03-25 02:27:24,977 | ── SCAN SESSION 571f27bc | target=192.168.1.1 | objective=quick | target_type=network_host | tools_selected=3 | model=gpt-4o | client=5ire ──
+2026-03-25 02:27:24,977 | TOOL_DECISION | session=571f27bc | tool=nmap-advanced | llm_chain_pos=1 | effectiveness_score=0.97 | attack_chain_priority=3 | target=192.168.1.1 | target_type=network_host | objective=quick | model=gpt-4o | client=5ire
+2026-03-25 02:27:24,977 | TOOL_DECISION | session=571f27bc | tool=nmap | llm_chain_pos=2 | effectiveness_score=0.95 | attack_chain_priority=N/A | target=192.168.1.1 | target_type=network_host | objective=quick | model=gpt-4o | client=5ire
+2026-03-25 02:27:24,977 | TOOL_DECISION | session=571f27bc | tool=autorecon | llm_chain_pos=3 | effectiveness_score=0.95 | attack_chain_priority=1 | target=192.168.1.1 | target_type=network_host | objective=quick | model=gpt-4o | client=5ire
+2026-03-25 02:27:24,977 | ── END SESSION 571f27bc ──

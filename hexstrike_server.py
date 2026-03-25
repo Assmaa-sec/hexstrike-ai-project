@@ -93,10 +93,35 @@ logger = logging.getLogger(__name__)
 # ── Tool Decision Logger ──────────────────────────────────────────────────────
 tool_logger = logging.getLogger("tool_logger")
 tool_logger.setLevel(logging.INFO)
-tool_logger.propagate = False  # Don't bubble up to root logger
+tool_logger.propagate = False
 _tool_log_handler = logging.FileHandler("tool_logger.log")
 _tool_log_handler.setFormatter(logging.Formatter("%(asctime)s | %(message)s"))
 tool_logger.addHandler(_tool_log_handler)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Hexstrike Config (LLM / Client identity) ──────────────────────────────────
+HEXSTRIKE_CONFIG_FILE = Path("hexstrike_config.json")
+
+def _load_hexstrike_config() -> Dict[str, Any]:
+    """Load persisted LLM/client config from disk."""
+    if HEXSTRIKE_CONFIG_FILE.exists():
+        try:
+            with open(HEXSTRIKE_CONFIG_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"llm_model": "unknown", "client": "unknown", "last_updated": None}
+
+def _save_hexstrike_config(model: str, client: str) -> None:
+    """Persist LLM/client config to disk."""
+    config = {"llm_model": model, "client": client, "last_updated": datetime.now().isoformat()}
+    with open(HEXSTRIKE_CONFIG_FILE, "w") as f:
+        json.dump(config, f, indent=2)
+
+def get_llm_identity() -> tuple:
+    """Return (llm_model, client) from persisted config."""
+    config = _load_hexstrike_config()
+    return config.get("llm_model", "unknown"), config.get("client", "unknown")
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Flask app configuration
@@ -1005,15 +1030,17 @@ class IntelligentDecisionEngine:
         return None
 
     def log_tool_decision(self, selected_tools: List[str], profile: 'TargetProfile', objective: str, session_id: str = None) -> None:
-        """Log each tool chosen by the decision engine with its chain position, effectiveness score, and attack chain priority."""
+        """Log each tool chosen by the decision engine with its chain position, effectiveness score, attack chain priority, LLM model, and client."""
         import uuid
         sid = session_id or str(uuid.uuid4())[:8]
         target_type = profile.target_type.value
         effectiveness_map = self.tool_effectiveness.get(target_type, {})
+        llm_model, client = get_llm_identity()
 
         tool_logger.info(
             f"── SCAN SESSION {sid} | target={profile.target} | objective={objective} | "
-            f"target_type={target_type} | tools_selected={len(selected_tools)} ──"
+            f"target_type={target_type} | tools_selected={len(selected_tools)} | "
+            f"model={llm_model} | client={client} ──"
         )
 
         for chain_pos, tool in enumerate(selected_tools, start=1):
@@ -1028,7 +1055,9 @@ class IntelligentDecisionEngine:
                 f"attack_chain_priority={chain_priority if chain_priority is not None else 'N/A'} | "
                 f"target={profile.target} | "
                 f"target_type={target_type} | "
-                f"objective={objective}"
+                f"objective={objective} | "
+                f"model={llm_model} | "
+                f"client={client}"
             )
 
         tool_logger.info(f"── END SESSION {sid} ──")
@@ -9349,6 +9378,34 @@ def clear_cache():
 def get_telemetry():
     """Get system telemetry"""
     return jsonify(telemetry.get_stats())
+
+@app.route("/api/config/set-identity", methods=["POST"])
+def set_identity():
+    """Set the LLM model and client being used with HexStrike. Call this once to identify yourself."""
+    try:
+        data = request.get_json()
+        if not data or 'model' not in data or 'client' not in data:
+            return jsonify({"error": "Both 'model' and 'client' fields are required"}), 400
+
+        model = data['model'].strip()
+        client = data['client'].strip()
+        _save_hexstrike_config(model, client)
+
+        logger.info(f"🪪 Identity set — model={model} | client={client}")
+        return jsonify({
+            "success": True,
+            "message": f"Identity saved. All future tool decisions will be logged as model={model}, client={client}",
+            "model": model,
+            "client": client
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/config/get-identity", methods=["GET"])
+def get_identity():
+    """Get the currently configured LLM model and client."""
+    model, client = get_llm_identity()
+    return jsonify({"model": model, "client": client})
 
 # ============================================================================
 # PROCESS MANAGEMENT API ENDPOINTS (v5.0 ENHANCEMENT)

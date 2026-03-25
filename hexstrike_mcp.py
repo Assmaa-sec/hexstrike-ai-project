@@ -277,6 +277,38 @@ def setup_mcp_server(hexstrike_client: HexStrikeClient) -> FastMCP:
     mcp = FastMCP("hexstrike-ai-mcp")
 
     # ============================================================================
+    # IDENTITY CONFIGURATION
+    # ============================================================================
+
+    @mcp.tool()
+    def set_llm_identity(model: str, client: str) -> Dict[str, Any]:
+        """
+        Set which LLM model and client are being used with HexStrike.
+        Call this once to identify yourself — it persists across sessions.
+        Call it again any time you switch models or clients.
+
+        Args:
+            model: The LLM model name (e.g. claude-3.5-sonnet, gpt-4o, gemini-2.0-flash)
+            client: The client you are using (e.g. claude-desktop, vscode, roo-code, 5ire, trae, cursor)
+
+        Returns:
+            Confirmation that identity was saved
+        """
+        result = hexstrike_client.safe_post("api/config/set-identity", {"model": model, "client": client})
+        logger.info(f"🪪 Identity configured — model={model} | client={client}")
+        return result
+
+    @mcp.tool()
+    def get_llm_identity() -> Dict[str, Any]:
+        """
+        Get the currently configured LLM model and client for HexStrike logging.
+
+        Returns:
+            Currently saved model and client identity
+        """
+        return hexstrike_client.safe_get("api/config/get-identity")
+
+    # ============================================================================
     # CORE NETWORK SCANNING TOOLS
     # ============================================================================
 
