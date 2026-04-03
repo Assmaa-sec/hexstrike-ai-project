@@ -103,25 +103,63 @@ tool_logger.addHandler(_tool_log_handler)
 HEXSTRIKE_CONFIG_FILE = Path("hexstrike_config.json")
 
 def _load_hexstrike_config() -> Dict[str, Any]:
-    """Load persisted LLM/client config from disk."""
+    """Load persisted config from disk."""
+    defaults = {
+        "llm_model": "unknown",
+        "client": "unknown",
+        "last_updated": None,
+        "ctf_difficulty": "unknown",
+        "ctf_type": "unknown",
+        "prompt_type": "unknown",
+        "success": "unknown",
+        "timer_start": None,
+        "timer_end": None,
+        "elapsed_seconds": None,
+    }
     if HEXSTRIKE_CONFIG_FILE.exists():
         try:
             with open(HEXSTRIKE_CONFIG_FILE, "r") as f:
-                return json.load(f)
+                saved = json.load(f)
+                defaults.update(saved)
+                return defaults
         except Exception:
             pass
-    return {"llm_model": "unknown", "client": "unknown", "last_updated": None}
+    return defaults
 
 def _save_hexstrike_config(model: str, client: str) -> None:
-    """Persist LLM/client config to disk."""
-    config = {"llm_model": model, "client": client, "last_updated": datetime.now().isoformat()}
+    """Persist LLM/client config to disk (preserves existing fields)."""
+    config = _load_hexstrike_config()
+    config["llm_model"] = model
+    config["client"] = client
+    config["last_updated"] = datetime.now().isoformat()
     with open(HEXSTRIKE_CONFIG_FILE, "w") as f:
         json.dump(config, f, indent=2)
+
+def _update_hexstrike_config(updates: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge updates into the persisted config and save."""
+    config = _load_hexstrike_config()
+    config.update(updates)
+    with open(HEXSTRIKE_CONFIG_FILE, "w") as f:
+        json.dump(config, f, indent=2)
+    return config
 
 def get_llm_identity() -> tuple:
     """Return (llm_model, client) from persisted config."""
     config = _load_hexstrike_config()
     return config.get("llm_model", "unknown"), config.get("client", "unknown")
+
+def get_ctf_meta() -> Dict[str, Any]:
+    """Return CTF metadata from persisted config."""
+    config = _load_hexstrike_config()
+    return {
+        "ctf_difficulty": config.get("ctf_difficulty", "unknown"),
+        "ctf_type": config.get("ctf_type", "unknown"),
+        "prompt_type": config.get("prompt_type", "unknown"),
+        "success": config.get("success", "unknown"),
+        "timer_start": config.get("timer_start"),
+        "timer_end": config.get("timer_end"),
+        "elapsed_seconds": config.get("elapsed_seconds"),
+    }
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Flask app configuration
@@ -1037,10 +1075,14 @@ class IntelligentDecisionEngine:
         effectiveness_map = self.tool_effectiveness.get(target_type, {})
         llm_model, client = get_llm_identity()
 
+        meta = get_ctf_meta()
         tool_logger.info(
             f"── SCAN SESSION {sid} | target={profile.target} | objective={objective} | "
             f"target_type={target_type} | tools_selected={len(selected_tools)} | "
-            f"model={llm_model} | client={client} ──"
+            f"model={llm_model} | client={client} | "
+            f"ctf_difficulty={meta['ctf_difficulty']} | ctf_type={meta['ctf_type']} | "
+            f"prompt_type={meta['prompt_type']} | success={meta['success']} | "
+            f"timer_start={meta['timer_start']} | elapsed_seconds={meta['elapsed_seconds']} ──"
         )
 
         for chain_pos, tool in enumerate(selected_tools, start=1):
@@ -1057,7 +1099,10 @@ class IntelligentDecisionEngine:
                 f"target_type={target_type} | "
                 f"objective={objective} | "
                 f"model={llm_model} | "
-                f"client={client}"
+                f"client={client} | "
+                f"ctf_difficulty={meta['ctf_difficulty']} | ctf_type={meta['ctf_type']} | "
+                f"prompt_type={meta['prompt_type']} | success={meta['success']} | "
+                f"timer_start={meta['timer_start']} | elapsed_seconds={meta['elapsed_seconds']}"
             )
 
         tool_logger.info(f"── END SESSION {sid} ──")
@@ -9406,6 +9451,99 @@ def get_identity():
     """Get the currently configured LLM model and client."""
     model, client = get_llm_identity()
     return jsonify({"model": model, "client": client})
+
+@app.route("/api/config/set-ctf-meta", methods=["POST"])
+def set_ctf_meta():
+    """Set CTF session metadata: difficulty, type, and prompt type."""
+    try:
+        data = request.get_json() or {}
+        updates = {}
+        if "ctf_difficulty" in data:
+            updates["ctf_difficulty"] = str(data["ctf_difficulty"]).strip()
+        if "ctf_type" in data:
+            updates["ctf_type"] = str(data["ctf_type"]).strip()
+        if "prompt_type" in data:
+            updates["prompt_type"] = str(data["prompt_type"]).strip()
+        if not updates:
+            return jsonify({"error": "Provide at least one of: ctf_difficulty, ctf_type, prompt_type"}), 400
+        config = _update_hexstrike_config(updates)
+        logger.info(f"🎯 CTF meta updated — {updates}")
+        return jsonify({"success": True, "message": "CTF metadata saved", **updates})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/config/set-success", methods=["POST"])
+def set_success():
+    """Mark the CTF session as succeeded, failed, or in-progress."""
+    try:
+        data = request.get_json() or {}
+        value = data.get("success", "").strip().lower()
+        valid = {"true", "false", "yes", "no", "success", "fail", "in-progress", "partial"}
+        if value not in valid:
+            return jsonify({"error": f"'success' must be one of: {sorted(valid)}"}), 400
+        _update_hexstrike_config({"success": value})
+        logger.info(f"✅ Session success status set to: {value}")
+        return jsonify({"success": True, "status": value})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/config/start-timer", methods=["POST"])
+def start_timer():
+    """Start the session timer."""
+    try:
+        now = datetime.now().isoformat()
+        _update_hexstrike_config({"timer_start": now, "timer_end": None, "elapsed_seconds": None})
+        tool_logger.info(f"TIMER_START | timestamp={now}")
+        logger.info(f"⏱️  Timer started at {now}")
+        return jsonify({"success": True, "timer_start": now})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/config/stop-timer", methods=["POST"])
+def stop_timer():
+    """Stop the session timer and record elapsed time."""
+    try:
+        config = _load_hexstrike_config()
+        timer_start = config.get("timer_start")
+        if not timer_start:
+            return jsonify({"error": "Timer was never started. Call /api/config/start-timer first."}), 400
+        now = datetime.now()
+        start_dt = datetime.fromisoformat(timer_start)
+        elapsed = (now - start_dt).total_seconds()
+        _update_hexstrike_config({"timer_end": now.isoformat(), "elapsed_seconds": elapsed})
+        tool_logger.info(f"TIMER_STOP | timer_start={timer_start} | timer_end={now.isoformat()} | elapsed_seconds={elapsed:.1f}")
+        logger.info(f"⏱️  Timer stopped — elapsed: {elapsed:.1f}s")
+        return jsonify({"success": True, "timer_start": timer_start, "timer_end": now.isoformat(), "elapsed_seconds": elapsed})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/config/get-ctf-meta", methods=["GET"])
+def get_ctf_meta_endpoint():
+    """Return all CTF session metadata."""
+    return jsonify(get_ctf_meta())
+
+@app.route("/api/log/tool-call", methods=["POST"])
+def log_tool_call():
+    """Log a tool call from any LLM client (Claude, DeepSeek, etc.) to tool_logger.log."""
+    try:
+        data = request.get_json() or {}
+        tool_name = data.get("tool_name", "unknown")
+        llm_model = data.get("llm_model", "unknown")
+        client = data.get("client", "unknown")
+        tool_source = data.get("tool_source", "hexstrike")  # 'hexstrike' or 'llm-native'
+        params_summary = data.get("params_summary", "")
+        meta = get_ctf_meta()
+        tool_logger.info(
+            f"TOOL_CALL | tool={tool_name} | source={tool_source} | "
+            f"model={llm_model} | client={client} | "
+            f"ctf_difficulty={meta['ctf_difficulty']} | ctf_type={meta['ctf_type']} | "
+            f"prompt_type={meta['prompt_type']} | success={meta['success']} | "
+            f"timer_start={meta['timer_start']} | elapsed_seconds={meta['elapsed_seconds']} | "
+            f"params={params_summary}"
+        )
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 # ============================================================================
 # PROCESS MANAGEMENT API ENDPOINTS (v5.0 ENHANCEMENT)

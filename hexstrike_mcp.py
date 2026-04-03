@@ -139,6 +139,49 @@ for handler in logging.getLogger().handlers:
 
 logger = logging.getLogger(__name__)
 
+_MCP_TOOL_LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tool_logger.log")
+_mcp_tool_logger = logging.getLogger("mcp_tool_logger")
+_mcp_tool_logger.setLevel(logging.INFO)
+_mcp_tool_logger.propagate = False
+_mcp_tool_log_handler = logging.FileHandler(_MCP_TOOL_LOG_PATH)
+_mcp_tool_log_handler.setFormatter(logging.Formatter("%(asctime)s | %(message)s"))
+_mcp_tool_logger.addHandler(_mcp_tool_log_handler)
+
+def _log_mcp_tool_call(tool_name: str, tool_source: str, params_summary: str, hexstrike_client: "HexStrikeClient") -> None:
+    """Log a tool invocation from any LLM to tool_logger.log via the server endpoint."""
+    try:
+        config = _load_mcp_config()
+        llm_model = config.get("llm_model", "unknown")
+        client_id = config.get("client", "unknown")
+        ctf_difficulty = config.get("ctf_difficulty", "unknown")
+        ctf_type = config.get("ctf_type", "unknown")
+        prompt_type = config.get("prompt_type", "unknown")
+        success = config.get("success", "unknown")
+        timer_start = config.get("timer_start")
+        elapsed = config.get("elapsed_seconds")
+        _mcp_tool_logger.info(
+            f"TOOL_CALL | tool={tool_name} | source={tool_source} | "
+            f"model={llm_model} | client={client_id} | "
+            f"ctf_difficulty={ctf_difficulty} | ctf_type={ctf_type} | "
+            f"prompt_type={prompt_type} | success={success} | "
+            f"timer_start={timer_start} | elapsed_seconds={elapsed} | "
+            f"params={params_summary}"
+        )
+    except Exception:
+        pass  # Never crash the tool because of logging
+
+def _load_mcp_config() -> dict:
+    """Load hexstrike_config.json for CTF metadata without hitting the server."""
+    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hexstrike_config.json")
+    try:
+        if os.path.exists(config_path):
+            import json as _json
+            with open(config_path, "r") as f:
+                return _json.load(f)
+    except Exception:
+        pass
+    return {}
+
 # Default configuration
 DEFAULT_HEXSTRIKE_SERVER = "http://127.0.0.1:8888"  # Default HexStrike server URL
 DEFAULT_REQUEST_TIMEOUT = 300  # 5 minutes default timeout for API requests
@@ -286,14 +329,16 @@ def setup_mcp_server(hexstrike_client: HexStrikeClient) -> FastMCP:
         Set which LLM model and client are being used with HexStrike.
         Call this once to identify yourself — it persists across sessions.
         Call it again any time you switch models or clients.
+        Supported models include claude-*, deepseek-*, gpt-4*, gemini-*, etc.
 
         Args:
-            model: The LLM model name (e.g. claude-3.5-sonnet, gpt-4o, gemini-2.0-flash)
+            model: The LLM model name (e.g. claude-sonnet-4-6, deepseek-r1, gpt-4o, gemini-2.0-flash)
             client: The client you are using (e.g. claude-desktop, vscode, roo-code, 5ire, trae, cursor)
 
         Returns:
             Confirmation that identity was saved
         """
+        _log_mcp_tool_call("set_llm_identity", "hexstrike", f"model={model} client={client}", hexstrike_client)
         result = hexstrike_client.safe_post("api/config/set-identity", {"model": model, "client": client})
         logger.info(f"🪪 Identity configured — model={model} | client={client}")
         return result
@@ -5442,6 +5487,108 @@ def setup_mcp_server(hexstrike_client: HexStrikeClient) -> FastMCP:
             logger.error(f"{HexStrikeColors.ERROR}❌ Error recovery test failed{HexStrikeColors.RESET}")
 
         return result
+
+    # ============================================================================
+    # CTF SESSION METADATA & TIMER TOOLS
+    # ============================================================================
+
+    @mcp.tool()
+    def set_ctf_metadata(
+        ctf_difficulty: str = "",
+        ctf_type: str = "",
+        prompt_type: str = ""
+    ) -> Dict[str, Any]:
+        """
+        Set metadata about the current CTF session for logging and research tracking.
+        Call this at the start of each CTF challenge. All fields are optional — supply
+        only the ones you want to update.
+
+        Args:
+            ctf_difficulty: Difficulty level (e.g. Easy, Medium, Hard, Insane)
+            ctf_type: Category of the CTF challenge (e.g. Web, Pwn, Crypto, Forensics,
+                      Reversing, OSINT, Misc, Network, Cloud, Mobile)
+            prompt_type: Type of prompting strategy used (e.g. direct, chain-of-thought,
+                         few-shot, zero-shot, role-play, agentic)
+
+        Returns:
+            Confirmation that metadata was saved
+        """
+        payload = {}
+        if ctf_difficulty:
+            payload["ctf_difficulty"] = ctf_difficulty
+        if ctf_type:
+            payload["ctf_type"] = ctf_type
+        if prompt_type:
+            payload["prompt_type"] = prompt_type
+        if not payload:
+            return {"error": "Provide at least one of: ctf_difficulty, ctf_type, prompt_type"}
+        _log_mcp_tool_call("set_ctf_metadata", "hexstrike", str(payload), hexstrike_client)
+        result = hexstrike_client.safe_post("api/config/set-ctf-meta", payload)
+        logger.info(f"🎯 CTF metadata set — {payload}")
+        return result
+
+    @mcp.tool()
+    def set_success(success: str) -> Dict[str, Any]:
+        """
+        Mark whether the current CTF challenge was solved or not.
+        Call this when you finish (or give up on) a challenge.
+
+        Args:
+            success: Outcome of the challenge. Accepted values:
+                     "true" / "yes" / "success" — challenge solved
+                     "false" / "no" / "fail"    — challenge not solved
+                     "partial"                   — partial flag or incomplete
+                     "in-progress"               — still working on it
+
+        Returns:
+            Confirmation that the outcome was saved
+        """
+        _log_mcp_tool_call("set_success", "hexstrike", f"success={success}", hexstrike_client)
+        result = hexstrike_client.safe_post("api/config/set-success", {"success": success})
+        logger.info(f"✅ Success status set — {success}")
+        return result
+
+    @mcp.tool()
+    def start_timer() -> Dict[str, Any]:
+        """
+        Start the session timer for this CTF challenge.
+        Call this as soon as you begin working on a challenge. The elapsed time will
+        be included in all tool_logger.log entries until stop_timer is called.
+
+        Returns:
+            The timestamp when the timer was started
+        """
+        _log_mcp_tool_call("start_timer", "hexstrike", "", hexstrike_client)
+        result = hexstrike_client.safe_post("api/config/start-timer", {})
+        logger.info(f"⏱️  Timer started")
+        return result
+
+    @mcp.tool()
+    def stop_timer() -> Dict[str, Any]:
+        """
+        Stop the session timer and record the elapsed time.
+        Call this when you finish (or give up on) the challenge.
+
+        Returns:
+            Timer start, stop timestamps, and total elapsed seconds
+        """
+        _log_mcp_tool_call("stop_timer", "hexstrike", "", hexstrike_client)
+        result = hexstrike_client.safe_post("api/config/stop-timer", {})
+        elapsed = result.get("elapsed_seconds", 0)
+        logger.info(f"⏱️  Timer stopped — elapsed: {elapsed:.1f}s")
+        return result
+
+    @mcp.tool()
+    def get_ctf_session_info() -> Dict[str, Any]:
+        """
+        Get all current CTF session metadata: difficulty, type, prompt type,
+        success status, and timer information.
+
+        Returns:
+            Full CTF session metadata from the persisted config
+        """
+        _log_mcp_tool_call("get_ctf_session_info", "hexstrike", "", hexstrike_client)
+        return hexstrike_client.safe_get("api/config/get-ctf-meta")
 
     return mcp
 
