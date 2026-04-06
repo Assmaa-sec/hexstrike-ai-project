@@ -7,11 +7,11 @@ HEXSTRIKE ADDED FEATURES
    score, attack chain priority, target, target type, and objective.
 
    Files:
-   - hexstrike_server.py line 94     : tool_logger file handler setup
-   - hexstrike_server.py line 1005   : _get_attack_chain_priority() looks up tool priority in attack pattern chains
-   - hexstrike_server.py line 1032   : log_tool_decision() writes one log entry per tool per scan
-   - hexstrike_server.py line 1095   : call inside select_optimal_tools() triggers on every scan
-   - tool_logger.log                 : output log file
+   - hexstrike_server.py : tool_logger file handler setup (module level, on import)
+   - hexstrike_server.py : _get_attack_chain_priority() looks up tool priority in attack pattern chains
+   - hexstrike_server.py : log_tool_decision() writes one log entry per tool per scan
+   - hexstrike_server.py : select_optimal_tools() calls log_tool_decision() on every scan
+   - tool_logger.log     : output log file
 
 
 2. LLM AND CLIENT IDENTITY
@@ -20,14 +20,14 @@ HEXSTRIKE ADDED FEATURES
    Call once to set it, call again anytime to update it.
 
    Files:
-   - hexstrike_server.py line 105    : _load_hexstrike_config() reads config from disk
-   - hexstrike_server.py line 115    : _save_hexstrike_config() writes config to disk
-   - hexstrike_server.py line 121    : get_llm_identity() returns current model and client
-   - hexstrike_server.py line 9383   : POST /api/config/set-identity HTTP endpoint to set identity
-   - hexstrike_server.py line 9405   : GET  /api/config/get-identity HTTP endpoint to read identity
-   - hexstrike_mcp.py   line 284     : set_llm_identity() MCP tool to set model and client
-   - hexstrike_mcp.py   line 302     : get_llm_identity() MCP tool to read current identity
-   - hexstrike_config.json           : persisted identity config file
+   - hexstrike_server.py : _load_hexstrike_config() reads config from disk
+   - hexstrike_server.py : _save_hexstrike_config() writes config to disk
+   - hexstrike_server.py : get_llm_identity() returns current model and client
+   - hexstrike_server.py : POST /api/config/set-identity HTTP endpoint to set identity
+   - hexstrike_server.py : GET  /api/config/get-identity HTTP endpoint to read identity
+   - hexstrike_mcp.py    : set_llm_identity() MCP tool to set model and client
+   - hexstrike_mcp.py    : get_llm_identity() MCP tool to read current identity
+   - hexstrike_config.json : persisted identity config file
 
 
 3. UNIVERSAL TOOL CALL LOGGER (ALL LLMs)
@@ -43,20 +43,19 @@ HEXSTRIKE ADDED FEATURES
    Hexstrike tools are logged only at the MCP level. Native LLM tools are logged
    only at the hook level. This avoids duplicate entries.
 
+   Note: elapsed_seconds in hook log entries reflects the last value stored by
+   stop_timer(). It will be null during an active session until stop_timer() is called.
+
    Log entry format:
-     TOOL_CALL | tool=<name> | source=<hexstrike|claude-native|deepseek-native|llm-native> |
-     model=<llm> | client=<client> | session=<id> |
-     ctf_difficulty=<val> | ctf_type=<val> | prompt_type=<val> | success=<val> |
-     timer_start=<iso> | elapsed_seconds=<float> | params=<summary>
 
    Files:
-   - hexstrike_mcp.py   line 143     : _MCP_TOOL_LOG_PATH path to shared log file
-   - hexstrike_mcp.py   line 151     : _log_mcp_tool_call() logs each MCP tool call
-   - hexstrike_mcp.py   line 174     : _load_mcp_config() reads config for metadata
-   - hexstrike_server.py line 9525   : POST /api/log/tool-call HTTP fallback log endpoint
-   - hooks/tool_logger_hook.py       : PreToolUse hook script for Claude and DeepSeek native tools
-   - ~/.claude/settings.json         : hook registration (PreToolUse points to hook script)
-   - tool_logger.log                 : unified output log file
+   - hexstrike_mcp.py        : _MCP_TOOL_LOG_PATH path to shared log file
+   - hexstrike_mcp.py        : _log_mcp_tool_call() logs each MCP tool call
+   - hexstrike_mcp.py        : _load_mcp_config() reads config for metadata
+   - hexstrike_server.py     : POST /api/log/tool-call HTTP fallback log endpoint
+   - hooks/tool_logger_hook.py : PreToolUse hook script for Claude and DeepSeek native tools
+   - ~/.claude/settings.json : hook registration (PreToolUse points to hook script)
+   - tool_logger.log         : unified output log file
 
    How to use:
    - Nothing extra needed. Every tool call is logged automatically.
@@ -65,34 +64,31 @@ HEXSTRIKE ADDED FEATURES
 
 
 4. CTF SESSION METADATA
-   Lets you attach CTF challenge info to every log entry. You can set the difficulty,
-   the category, and the type of prompting strategy being used. All of it gets saved
-   to hexstrike_config.json and included automatically in all tool_logger.log entries
-   from that point forward.
+   Lets you attach CTF challenge info to every log entry. You can set the difficulty
+   and category. All of it gets saved to hexstrike_config.json and included
+   automatically in all tool_logger.log entries from that point forward.
 
    Fields:
-   - ctf_difficulty : Easy, Medium, Hard, Insane (or any custom value)
-   - ctf_type       : Web, Pwn, Crypto, Forensics, Reversing, OSINT, Misc,
-                      Network, Cloud, Mobile (or any custom value)
-   - prompt_type    : direct, chain-of-thought, few-shot, zero-shot,
-                      role-play, agentic (or any custom value)
+   - ctf_difficulty : Easy, Medium, Hard
+   - ctf_type       : Web, Crypto, Blockchain, Forensics, General, Reversing, Binary
+   - prompt_type    : direct, comprehensive  (field may be removed in a future version)
 
    Files:
-   - hexstrike_server.py line 105    : _load_hexstrike_config() loads all config fields
-   - hexstrike_server.py line 138    : _update_hexstrike_config() partial config update helper
-   - hexstrike_server.py line 151    : get_ctf_meta() returns just the CTF fields
-   - hexstrike_server.py line 9455   : POST /api/config/set-ctf-meta HTTP endpoint
-   - hexstrike_server.py line 9520   : GET  /api/config/get-ctf-meta HTTP endpoint
-   - hexstrike_server.py line 1070   : log_tool_decision() CTF fields now in every TOOL_DECISION line
-   - hexstrike_mcp.py   line 5498    : set_ctf_metadata() MCP tool
-   - hexstrike_mcp.py   line 5584    : get_ctf_session_info() MCP tool
-   - hexstrike_config.json           : persisted config file
+   - hexstrike_server.py : _load_hexstrike_config() loads all config fields
+   - hexstrike_server.py : _update_hexstrike_config() partial config update helper
+   - hexstrike_server.py : get_ctf_meta() returns just the CTF fields
+   - hexstrike_server.py : POST /api/config/set-ctf-meta HTTP endpoint
+   - hexstrike_server.py : GET  /api/config/get-ctf-meta HTTP endpoint
+   - hexstrike_server.py : log_tool_decision() includes CTF fields in every TOOL_DECISION line
+   - hexstrike_mcp.py    : set_ctf_metadata() MCP tool
+   - hexstrike_mcp.py    : get_ctf_session_info() MCP tool
+   - hexstrike_config.json : persisted config file
 
    How to use (MCP tool):
      set_ctf_metadata(
          ctf_difficulty="Hard",
-         ctf_type="Pwn",
-         prompt_type="chain-of-thought"
+         ctf_type="Binary",
+         prompt_type="direct"
      )
      # all fields are optional, only pass what you want to update
      # call again anytime to change one or more fields mid-session
@@ -108,6 +104,9 @@ HEXSTRIKE ADDED FEATURES
    Mark whether the CTF challenge was solved, failed, or partially done.
    Gets saved to hexstrike_config.json and included in all log entries after that.
 
+   Set this MANUALLY after each session. Do not rely on the LLM to set it —
+   it will produce unreliable or self-reported results.
+
    Accepted values:
    - "true" / "yes" / "success"  : challenge solved
    - "false" / "no" / "fail"     : challenge not solved
@@ -115,14 +114,9 @@ HEXSTRIKE ADDED FEATURES
    - "in-progress"               : still working on it
 
    Files:
-   - hexstrike_server.py line 9475   : POST /api/config/set-success HTTP endpoint
-   - hexstrike_mcp.py   line 5533    : set_success() MCP tool
-   - hexstrike_config.json           : persisted config file
-
-   How to use (MCP tool):
-     set_success("true")      # challenge solved
-     set_success("fail")      # gave up or wrong path
-     set_success("partial")   # got partial credit
+   - hexstrike_server.py : POST /api/config/set-success HTTP endpoint
+   - hexstrike_mcp.py    : set_success() MCP tool
+   - hexstrike_config.json : persisted config file
 
    How to use (HTTP):
      POST http://127.0.0.1:8888/api/config/set-success
@@ -135,12 +129,12 @@ HEXSTRIKE ADDED FEATURES
    long the LLM took to use each tool.
 
    Files:
-   - hexstrike_server.py line 9490   : POST /api/config/start-timer HTTP endpoint
-   - hexstrike_server.py line 9502   : POST /api/config/stop-timer  HTTP endpoint
-   - hexstrike_mcp.py   line 5554    : start_timer() MCP tool
-   - hexstrike_mcp.py   line 5569    : stop_timer()  MCP tool
-   - hexstrike_config.json           : stores timer_start, timer_end, elapsed_seconds
-   - tool_logger.log                 : TIMER_START and TIMER_STOP marker lines written on each call
+   - hexstrike_server.py   : start_timer() / POST /api/config/start-timer HTTP endpoint
+   - hexstrike_server.py   : stop_timer()  / POST /api/config/stop-timer  HTTP endpoint
+   - hexstrike_mcp.py      : start_timer() MCP tool
+   - hexstrike_mcp.py      : stop_timer()  MCP tool
+   - hexstrike_config.json : stores timer_start, timer_end, elapsed_seconds
+   - tool_logger.log       : TIMER_START and TIMER_STOP marker lines written on each call
 
    How to use (MCP tools):
      start_timer()   # call at the beginning of a challenge
@@ -153,9 +147,10 @@ HEXSTRIKE ADDED FEATURES
 
    Typical full session workflow:
      set_llm_identity(model="deepseek-r1", client="5ire")
-     set_ctf_metadata(ctf_difficulty="Hard", ctf_type="Pwn", prompt_type="agentic")
+     set_ctf_metadata(ctf_difficulty="Hard", ctf_type="Binary", prompt_type="direct")
      start_timer()
      # solve the challenge
-     set_success("true")
+     # manually set success after reviewing results
      stop_timer()
      # every tool call in between gets logged with all the metadata and elapsed time
+     
