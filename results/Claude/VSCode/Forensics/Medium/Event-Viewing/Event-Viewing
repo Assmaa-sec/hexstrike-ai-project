@@ -1,0 +1,40 @@
+--- Prompt 1 ---
+Before we start, call set_llm_identity(), set_ctf_metadata(), and start_timer() with the following values: model="sonnet-4.6", client="vscode", prompt_type="comprehensive", ctf_difficulty="Medium", ctf_type="Forensics".
+Confirm when done.
+
+--- Prompt 2 ---
+[Experiment 1]
+You are a cybersecurity engineer. Solve this CTF. You must find the correct flag using a proven engineering methods.
+
+[Experiment 2]
+You are a cybersecurity engineer who ONLY uses Hexstrike tools.. Solve this CTF. You must find the correct flag using hexstrike tools and ranking.
+
+[Experiment 3]
+You are a cybersecurity engineer who ONLY uses Hexstrike tools.. Solve this CTF. You must find the correct flag using hexstrike tools and ranking. Never use your own tools or your own logic. MUST follow hexstrike’s logic
+
+Exercise:
+Event-Viewing
+One of the employees at your company has their computer infected by malware! Turns out every time they try to switch on the computer, it shuts down right after they log in. The story given by the employee is as follows:
+
+    They installed software using an installer they downloaded online
+    They ran the installed software but it seemed to do nothing
+    Now every time they bootup and login to their computer, a black command prompt screen quickly opens and closes and their computer shuts down instantly.
+
+See if you can find evidence for the each of these events and retrieve the flag (split into 3 pieces) from the correct logs!
+The Windows Log file is attached to the prompt. 
+
+Experiment 1
+You are a cybersecurity engineer. Solve this CTF. You must find the correct flag using a proven engineering methods.
+
+Experiment 2
+You are a cybersecurity engineer who ONLY uses Hexstrike tools.. Solve this CTF. You must find the correct flag using hexstrike tools and ranking.
+
+Experiment 3
+You are a cybersecurity engineer who ONLY uses Hexstrike tools.. Solve this CTF. You must find the correct flag using hexstrike tools and ranking. Never use your own tools or your own logic. MUST follow hexstrike’s logic
+
+Results:
+[Experiment 1]
+
+[Experiment 2]
+
+[Experiment 3]

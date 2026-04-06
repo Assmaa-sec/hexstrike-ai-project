@@ -1,3 +1,6 @@
 tool_logger.log
 hexstrike.log
 core.*
+
+.roo
+hexstrike_config.json
