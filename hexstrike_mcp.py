@@ -147,26 +147,70 @@ _mcp_tool_log_handler = logging.FileHandler(_MCP_TOOL_LOG_PATH)
 _mcp_tool_log_handler.setFormatter(logging.Formatter("%(asctime)s | %(message)s"))
 _mcp_tool_logger.addHandler(_mcp_tool_log_handler)
 
+# Setup/config tools — values appear in session header/footer only, not as TOOL_CALL entries
+_MCP_META_TOOLS = frozenset({
+    "set_llm_identity", "get_llm_identity",
+    "set_ctf_metadata", "get_ctf_session_info", "set_success",
+})
+
+_SESSION_SEP = "═" * 80
+
+
 def _log_mcp_tool_call(tool_name: str, tool_source: str, params_summary: str, hexstrike_client: "HexStrikeClient") -> None:
-    """Log a tool invocation from any LLM to tool_logger.log via the server endpoint."""
+    """Log a tool invocation from any LLM to tool_logger.log."""
     try:
         config = _load_mcp_config()
-        llm_model = config.get("llm_model", "unknown")
-        client_id = config.get("client", "unknown")
-        ctf_difficulty = config.get("ctf_difficulty", "unknown")
-        ctf_type = config.get("ctf_type", "unknown")
-        prompt_type = config.get("prompt_type", "unknown")
-        success = config.get("success", "unknown")
-        timer_start = config.get("timer_start")
-        elapsed = config.get("elapsed_seconds")
-        _mcp_tool_logger.info(
-            f"TOOL_CALL | tool={tool_name} | source={tool_source} | "
-            f"model={llm_model} | client={client_id} | "
-            f"ctf_difficulty={ctf_difficulty} | ctf_type={ctf_type} | "
-            f"prompt_type={prompt_type} | success={success} | "
-            f"timer_start={timer_start} | elapsed_seconds={elapsed} | "
-            f"params={params_summary}"
-        )
+
+        if tool_name == "start_timer":
+            llm_model = config.get("llm_model", "unknown")
+            client_id = config.get("client", "unknown")
+            ctf_type = config.get("ctf_type", "unknown")
+            ctf_difficulty = config.get("ctf_difficulty", "unknown")
+            prompt_type = config.get("prompt_type", "unknown")
+            _mcp_tool_logger.info(_SESSION_SEP)
+            _mcp_tool_logger.info("SESSION START")
+            _mcp_tool_logger.info(f"  Model     : {llm_model}")
+            _mcp_tool_logger.info(f"  Client    : {client_id}")
+            _mcp_tool_logger.info(f"  CTF Type  : {ctf_type}")
+            _mcp_tool_logger.info(f"  Difficulty: {ctf_difficulty}")
+            _mcp_tool_logger.info(f"  Prompt    : {prompt_type}")
+            _mcp_tool_logger.info(_SESSION_SEP)
+            return
+
+        if tool_name == "stop_timer":
+            llm_model = config.get("llm_model", "unknown")
+            client_id = config.get("client", "unknown")
+            ctf_type = config.get("ctf_type", "unknown")
+            ctf_difficulty = config.get("ctf_difficulty", "unknown")
+            prompt_type = config.get("prompt_type", "unknown")
+            success = config.get("success", "unknown")
+            timer_start = config.get("timer_start")
+            elapsed = config.get("elapsed_seconds")
+            if elapsed is None and timer_start:
+                try:
+                    elapsed = (datetime.now() - datetime.fromisoformat(timer_start)).total_seconds()
+                except Exception:
+                    elapsed = None
+            elapsed_str = f"{elapsed:.1f}s" if isinstance(elapsed, (int, float)) else "unknown"
+            _mcp_tool_logger.info(_SESSION_SEP)
+            _mcp_tool_logger.info("SESSION END")
+            _mcp_tool_logger.info(f"  Model     : {llm_model}")
+            _mcp_tool_logger.info(f"  Client    : {client_id}")
+            _mcp_tool_logger.info(f"  CTF Type  : {ctf_type}")
+            _mcp_tool_logger.info(f"  Difficulty: {ctf_difficulty}")
+            _mcp_tool_logger.info(f"  Prompt    : {prompt_type}")
+            _mcp_tool_logger.info(f"  Elapsed   : {elapsed_str}")
+            _mcp_tool_logger.info(f"  Success   : {success}")
+            _mcp_tool_logger.info(_SESSION_SEP)
+            return
+
+        if tool_name in _MCP_META_TOOLS:
+            return
+
+        # Real hexstrike tool call — concise line, no repeated session metadata
+        params_str = f" | {params_summary}" if params_summary else ""
+        _mcp_tool_logger.info(f"TOOL_CALL | [hexstrike] {tool_name}{params_str}")
+
     except Exception:
         pass  # Never crash the tool because of logging
 

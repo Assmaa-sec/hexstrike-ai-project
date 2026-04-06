@@ -1,9 +1,4 @@
 #!/usr/bin/env python3
-"""
-HexStrike PreToolUse hook. Fires before every Claude/DeepSeek native tool call
-and writes one TOOL_CALL line to tool_logger.log.
-Claude Code passes the tool event as JSON on stdin.
-"""
 
 import sys
 import json
@@ -15,12 +10,38 @@ PROJECT_DIR = os.path.dirname(SCRIPT_DIR)
 LOG_FILE = os.path.join(PROJECT_DIR, "tool_logger.log")
 CONFIG_FILE = os.path.join(PROJECT_DIR, "hexstrike_config.json")
 
+# The MCP server key as shown by `claude mcp list`.
+# Hook receives hexstrike MCP tool calls as "mcp__hexstrike-ai__<tool_name>".
+HEXSTRIKE_MCP_PREFIX = "mcp__hexstrike-ai__"
+
 _logger = logging.getLogger("hook_tool_logger")
 _logger.setLevel(logging.INFO)
 _logger.propagate = False
 _handler = logging.FileHandler(LOG_FILE)
 _handler.setFormatter(logging.Formatter("%(asctime)s | %(message)s"))
 _logger.addHandler(_handler)
+
+# Claude Code built-in tools
+CLAUDE_NATIVE_TOOLS = {
+    "Bash", "Read", "Write", "Edit", "MultiEdit", "Glob", "Grep",
+    "WebFetch", "WebSearch",
+    "Agent", "Skill", "ToolSearch", "SendMessage",
+    "TaskCreate", "TaskUpdate", "TaskGet", "TaskList", "TaskStop", "TaskOutput",
+    "CronCreate", "CronDelete", "CronList", "RemoteTrigger",
+    "NotebookEdit", "NotebookRead",
+    "EnterPlanMode", "ExitPlanMode",
+    "EnterWorktree", "ExitWorktree",
+    "AskUserQuestion",
+    "mcp__ide__executeCode", "mcp__ide__getDiagnostics",
+}
+
+# DeepSeek built-in tool names (when routed through a Claude Code-compatible hook)
+DEEPSEEK_NATIVE_TOOLS = {
+    "code_interpreter", "web_search", "python", "execute_python",
+    "search", "retrieval", "calculator",
+    "browser", "file_search", "text_editor",
+}
+
 
 def _load_config() -> dict:
     try:
@@ -31,55 +52,40 @@ def _load_config() -> dict:
         pass
     return {}
 
-# Hexstrike MCP tools are already logged by the MCP-side logger; skip them here.
-HEXSTRIKE_TOOLS = {
-    "set_llm_identity", "get_llm_identity",
-    "set_ctf_metadata", "set_success", "start_timer", "stop_timer", "get_ctf_session_info",
-    "nmap_scan", "gobuster_scan", "nuclei_scan", "nikto_scan", "sqlmap_scan",
-    "ffuf_scan", "feroxbuster_scan", "dirsearch_scan", "katana_crawl",
-    "httpx_probe", "subfinder_scan", "amass_scan", "gau_fetch", "waybackurls_fetch",
-    "hydra_attack", "john_crack", "hashcat_crack", "metasploit_exploit",
-    "enum4linux_scan", "smbmap_scan", "netexec_scan", "rustscan_scan",
-    "masscan_scan", "nmap_advanced_scan", "autorecon_scan",
-    "volatility_analyze", "msfvenom_generate", "gdb_debug", "radare2_analyze",
-    "binwalk_analyze", "checksec_analyze", "pwntools_exploit", "angr_analyze",
-    "burpsuite_scan", "zap_scan", "wafw00f_detect", "wpscan_scan",
-    "prowler_scan", "trivy_scan", "nuclei_cloud_scan",
-}
 
-CLAUDE_NATIVE_TOOLS = {
-    "Bash", "Read", "Write", "Edit", "Glob", "Grep",
-    "WebFetch", "WebSearch", "Agent", "Skill", "ToolSearch",
-    "TaskCreate", "TaskUpdate", "TaskGet", "TaskList", "TaskStop", "TaskOutput",
-    "CronCreate", "CronDelete", "CronList", "RemoteTrigger",
-    "NotebookEdit", "mcp__ide__executeCode", "mcp__ide__getDiagnostics",
-    "EnterPlanMode", "ExitPlanMode", "EnterWorktree", "ExitWorktree",
-    "AskUserQuestion",
-}
+def _is_session_active(config: dict) -> bool:
+    """Return True only between start_timer() and stop_timer() calls.
 
-DEEPSEEK_NATIVE_TOOLS = {
-    "code_interpreter", "web_search", "python", "execute_python",
-    "search", "retrieval", "calculator",
-}
+    start_timer sets timer_start and resets elapsed_seconds to None.
+    stop_timer sets elapsed_seconds to a float.
+    So an active session has timer_start set and elapsed_seconds absent/null.
+    """
+    return bool(config.get("timer_start")) and config.get("elapsed_seconds") is None
+
 
 def _get_tool_source(tool_name: str) -> str:
-    if tool_name in HEXSTRIKE_TOOLS:
-        return "hexstrike"
     if tool_name in CLAUDE_NATIVE_TOOLS:
-        return "claude-native"
+        return "claude"
     if tool_name in DEEPSEEK_NATIVE_TOOLS:
-        return "deepseek-native"
+        return "deepseek"
+    if tool_name.startswith("mcp__ide__"):
+        return "ide"
+    if tool_name.startswith("mcp__"):
+        parts = tool_name.split("__", 2)
+        return f"mcp-{parts[1]}" if len(parts) > 1 else "mcp"
     return "llm-native"
+
 
 def _summarise_input(tool_input: dict) -> str:
     try:
         parts = []
-        for k, v in list(tool_input.items())[:4]:
+        for k, v in list(tool_input.items())[:3]:
             val = str(v)
             parts.append(f"{k}={val[:60]}{'…' if len(val) > 60 else ''}")
         return " | ".join(parts)
     except Exception:
         return ""
+
 
 def main():
     try:
@@ -90,32 +96,25 @@ def main():
 
     tool_name = event.get("tool_name") or event.get("name") or "unknown"
     tool_input = event.get("tool_input") or event.get("input") or {}
-    session_id = event.get("session_id", "")
 
-    if tool_name in HEXSTRIKE_TOOLS:
+    # Hexstrike MCP tools are logged by the MCP-side logger in hexstrike_mcp.py.
+    # Detect them by prefix so the list stays current as new tools are added to the server.
+    if tool_name.startswith(HEXSTRIKE_MCP_PREFIX):
         return
 
     config = _load_config()
-    llm_model = config.get("llm_model", "unknown")
-    client_id = config.get("client", "unknown")
-    ctf_difficulty = config.get("ctf_difficulty", "unknown")
-    ctf_type = config.get("ctf_type", "unknown")
-    prompt_type = config.get("prompt_type", "unknown")
-    success = config.get("success", "unknown")
-    timer_start = config.get("timer_start")
-    elapsed = config.get("elapsed_seconds")
+
+    # Only log within an active CTF session (after start_timer, before stop_timer).
+    # This eliminates noise from the setup phase and any post-session activity.
+    if not _is_session_active(config):
+        return
 
     tool_source = _get_tool_source(tool_name)
     params_summary = _summarise_input(tool_input)
+    params_str = f" | {params_summary}" if params_summary else ""
 
-    _logger.info(
-        f"TOOL_CALL | tool={tool_name} | source={tool_source} | "
-        f"model={llm_model} | client={client_id} | session={session_id} | "
-        f"ctf_difficulty={ctf_difficulty} | ctf_type={ctf_type} | "
-        f"prompt_type={prompt_type} | success={success} | "
-        f"timer_start={timer_start} | elapsed_seconds={elapsed} | "
-        f"params={params_summary}"
-    )
+    _logger.info(f"TOOL_CALL | [{tool_source}] {tool_name}{params_str}")
+
 
 if __name__ == "__main__":
     main()
