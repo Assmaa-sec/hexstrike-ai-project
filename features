@@ -47,6 +47,16 @@ HEXSTRIKE ADDED FEATURES
    stop_timer(). It will be null during an active session until stop_timer() is called.
 
    Log entry format:
+      [TIMESTAMP] | ── SESSION [UUID] ── | model=[model] | client=[client]
+      ── CONTEXT ── | ctf_name=[name] | ctf_difficulty=[difficulty] | ctf_type=[type] | tools_selected=[X]
+      ── TIMER_START ──
+      TOOL DECISION | tool=[tool_name] | llm_chain_pos=[pos] | attack_chain_priority=[priority] | elapsed_seconds=[X]
+      TOOL DECISION | tool=[tool_name] | llm_chain_pos=[pos] | attack_chain_priority=[priority] | elapsed_seconds=[X]
+      TOOL DECISION | tool=[tool_name] | llm_chain_pos=[pos] | attack_chain_priority=[priority] | elapsed_seconds=[X]
+      TOOL DECISION | tool=[tool_name] | llm_chain_pos=[pos] | attack_chain_priority=[priority] | elapsed_seconds=[X]
+      ── TIMER_STOP ──
+      [TIMESTAMP] | ── END SESSION [UUID] ── | total_time_spent=[X]
+      ── TEST RESULT: [SUCCESSFUL/FAILED/PARTIAL] ──
 
    Files:
    - hexstrike_mcp.py        : _MCP_TOOL_LOG_PATH path to shared log file
