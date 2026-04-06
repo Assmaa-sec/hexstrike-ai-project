@@ -1079,26 +1079,16 @@ class IntelligentDecisionEngine:
         return None
 
     def log_tool_decision(self, selected_tools: List[str], profile: 'TargetProfile', objective: str, session_id: str = None) -> None:
-        """Log TOOL DECISION lines into the active session block."""
+        """Log HEXSTRIKE TOOL CHAIN lines into the active session block."""
         config = _load_hexstrike_config()
         sid = session_id or config.get("session_id") or "unknown"
         target_type = profile.target_type.value
-        timer_start = config.get("timer_start")
-
-        def _elapsed() -> str:
-            if not timer_start:
-                return "N/A"
-            try:
-                return f"{(datetime.now() - datetime.fromisoformat(timer_start)).total_seconds():.1f}s"
-            except Exception:
-                return "N/A"
 
         for chain_pos, tool in enumerate(selected_tools, start=1):
             chain_priority = self._get_attack_chain_priority(tool, target_type, objective)
             tool_logger_plain.info(
-                f"TOOL DECISION | tool={tool} | llm_chain_pos={chain_pos} | "
-                f"attack_chain_priority={chain_priority if chain_priority is not None else 'N/A'} | "
-                f"elapsed_seconds={_elapsed()}"
+                f"HEXSTRIKE TOOL CHAIN | tool={tool} | llm_chain_pos={chain_pos} | "
+                f"attack_chain_priority={chain_priority if chain_priority is not None else 'N/A'}"
             )
 
     def select_optimal_tools(self, profile: TargetProfile, objective: str = "comprehensive") -> List[str]:
@@ -9468,20 +9458,6 @@ def set_ctf_meta():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route("/api/config/set-success", methods=["POST"])
-def set_success():
-    """Mark the CTF session as succeeded, failed, or in-progress."""
-    try:
-        data = request.get_json() or {}
-        value = data.get("success", "").strip().lower()
-        valid = {"true", "false", "yes", "no", "success", "fail", "in-progress", "partial"}
-        if value not in valid:
-            return jsonify({"error": f"'success' must be one of: {sorted(valid)}"}), 400
-        _update_hexstrike_config({"success": value})
-        logger.info(f"✅ Session success status set to: {value}")
-        return jsonify({"success": True, "status": value})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/config/start-timer", methods=["POST"])
 def start_timer():
@@ -9524,6 +9500,7 @@ def stop_timer():
 
         tool_logger_plain.info("── TIMER_STOP ──")
         tool_logger.info(f"── END SESSION {sid} ── | total_time_spent={elapsed:.1f}s")
+        tool_logger_plain.info("── TEST RESULT: [SUCCESSFUL/FAILED/PARTIAL] ──")
 
         logger.info(f"⏱️  Timer stopped — elapsed: {elapsed:.1f}s")
         return jsonify({"success": True, "timer_start": timer_start, "timer_end": now.isoformat(), "elapsed_seconds": elapsed})
