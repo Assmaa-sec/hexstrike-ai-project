@@ -147,38 +147,35 @@ _mcp_tool_log_handler = logging.FileHandler(_MCP_TOOL_LOG_PATH)
 _mcp_tool_log_handler.setFormatter(logging.Formatter("%(asctime)s | %(message)s"))
 _mcp_tool_logger.addHandler(_mcp_tool_log_handler)
 
-# Plain logger — same file, no timestamp prefix
-_mcp_tool_logger_plain = logging.getLogger("mcp_tool_logger_plain")
-_mcp_tool_logger_plain.setLevel(logging.INFO)
-_mcp_tool_logger_plain.propagate = False
-_mcp_tool_log_plain_handler = logging.FileHandler(_MCP_TOOL_LOG_PATH)
-_mcp_tool_log_plain_handler.setFormatter(logging.Formatter("%(message)s"))
-_mcp_tool_logger_plain.addHandler(_mcp_tool_log_plain_handler)
+# Setup/config tools — values appear in session header/footer only, not as TOOL_CALL entries
+_MCP_META_TOOLS = frozenset({
+    "set_llm_identity", "get_llm_identity",
+    "set_ctf_metadata", "get_ctf_session_info", "set_success",
+})
 
-SUPPRESSED_MCP_TOOLS = {
-    "set_success", "stop_timer",
-    "get_llm_identity", "get_ctf_session_info",
-}
+_SESSION_SEP = "═" * 80
 
-SETUP_MCP_TOOLS = {"set_llm_identity", "set_ctf_metadata", "start_timer"}
 
-def _log_mcp_tool_call(tool_name: str, tool_source: str, params_summary: str) -> None:
-    """Log a tool invocation from any LLM to tool_logger.log."""
+def _log_mcp_tool_call(tool_name: str, tool_source: str, params_summary: str, hexstrike_client: "HexStrikeClient") -> None:
+    """Log a tool invocation from any LLM to tool_logger.log via the server endpoint."""
     try:
-        if tool_name in SUPPRESSED_MCP_TOOLS:
-            return
-
-        if tool_name == "set_llm_identity":
-            import uuid
-            sid = str(uuid.uuid4())[:8]
-            _update_mcp_config({"session_id": sid})
-            _mcp_tool_logger.info(f"── SESSION {sid} ──")
-            _mcp_tool_logger_plain.info("── START SETUP ──")
-
-        if tool_name in SETUP_MCP_TOOLS:
-            _mcp_tool_logger_plain.info(
-                f"TOOL CALL | tool={tool_name} | source={tool_source} | params={params_summary}"
-            )
+        config = _load_mcp_config()
+        llm_model = config.get("llm_model", "unknown")
+        client_id = config.get("client", "unknown")
+        ctf_difficulty = config.get("ctf_difficulty", "unknown")
+        ctf_type = config.get("ctf_type", "unknown")
+        prompt_type = config.get("prompt_type", "unknown")
+        success = config.get("success", "unknown")
+        timer_start = config.get("timer_start")
+        elapsed = config.get("elapsed_seconds")
+        _mcp_tool_logger.info(
+            f"TOOL_CALL | tool={tool_name} | source={tool_source} | "
+            f"model={llm_model} | client={client_id} | "
+            f"ctf_difficulty={ctf_difficulty} | ctf_type={ctf_type} | "
+            f"prompt_type={prompt_type} | success={success} | "
+            f"timer_start={timer_start} | elapsed_seconds={elapsed} | "
+            f"params={params_summary}"
+        )
     except Exception:
         pass  # Never crash the tool because of logging
 

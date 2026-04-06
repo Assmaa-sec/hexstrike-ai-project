@@ -1,6 +1,74 @@
 HEXSTRIKE ADDED FEATURES
 ========================
 
+================================================================================
+PRE-CTF SETUP MAP  (run every step IN ORDER before starting a challenge)
+================================================================================
+
+This is the exact sequence of manual calls required so that every log entry in
+tool_logger.log carries correct metadata from the first tool use onward.
+
+  STEP 1 — Start the server (terminal, once per machine session)
+    python3 hexstrike_server.py
+
+  STEP 2 — Set LLM identity  [MANUAL — required once, or when model/client changes]
+    set_llm_identity(
+        model  = "<model-id>",    # e.g. "claude-sonnet-4-6", "deepseek-r1", "gpt-4o"
+        client = "<client-name>"  # e.g. "claude-code", "cursor", "5ire", "roo-code"
+    )
+    *** Without this call, every log entry shows model=unknown / client=unknown ***
+
+  STEP 3 — Set CTF metadata  [MANUAL — required before each new challenge]
+    set_ctf_metadata(
+        ctf_difficulty = "<level>",     # Easy | Medium | Hard | Insane
+        ctf_type       = "<category>",  # Web | Pwn | Crypto | Forensics | Reversing |
+                                        # OSINT | Misc | Network | Cloud | Mobile
+        prompt_type    = "<strategy>"   # direct | chain-of-thought | few-shot |
+                                        # zero-shot | role-play | agentic
+    )
+    *** Without this call, CTF fields in every log entry show "unknown" ***
+
+  STEP 4 — Start the timer  [MANUAL — call at the exact moment you begin the challenge]
+    start_timer()
+    *** No parameters needed. Must be called BEFORE issuing any tool commands. ***
+    *** Without this, elapsed_seconds in log entries will be null.             ***
+
+  --- now work on the challenge; all tool calls log automatically ---
+
+  STEP 5 — Mark success  [MANUAL — call as soon as the outcome is known]
+    set_success("<outcome>")
+    # "true" / "yes" / "success"  →  solved
+    # "false" / "no" / "fail"     →  not solved
+    # "partial"                   →  partial flag / incomplete
+    # "in-progress"               →  still working (update again when done)
+    *** Without this call, success=unknown in all log entries after this point ***
+
+  STEP 6 — Stop the timer  [MANUAL — call immediately after set_success()]
+    stop_timer()
+    *** No parameters needed. Records elapsed wall-clock seconds. ***
+
+  STEP 7 — Verify (optional but recommended)
+    get_ctf_session_info()
+    *** Returns the full config snapshot: model, client, difficulty, type,
+        prompt_type, success, timer_start, timer_end, elapsed_seconds.      ***
+    *** Use this to confirm everything is set correctly before reviewing logs ***
+
+  Quick copy-paste template (fill in the <…> placeholders):
+  ─────────────────────────────────────────────────────────
+    set_llm_identity(model="<model>", client="<client>")
+    set_ctf_metadata(ctf_difficulty="<Easy|Medium|Hard|Insane>",
+                     ctf_type="<Web|Pwn|Crypto|…>",
+                     prompt_type="<direct|agentic|…>")
+    start_timer()
+    # … solve the challenge …
+    set_success("<true|partial|fail>")
+    stop_timer()
+    get_ctf_session_info()   # optional verify
+  ─────────────────────────────────────────────────────────
+
+================================================================================
+
+
 1. TOOL DECISION LOGGER
    Logs every tool chosen by the decision engine to tool_logger.log.
    Each entry includes the tool name, its position in the LLM chain, effectiveness
@@ -19,6 +87,20 @@ HEXSTRIKE ADDED FEATURES
    Saved to hexstrike_config.json and automatically included in every log entry.
    Call once to set it, call again anytime to update it.
 
+   *** REQUIRES MANUAL INPUT — must be called before any CTF work ***
+
+   MCP tool: set_llm_identity(model, client)
+     model   [REQUIRED] — the LLM model identifier string.
+               Examples: "claude-sonnet-4-6", "claude-opus-4-6", "deepseek-r1",
+                         "deepseek-v3", "gpt-4o", "gemini-2.0-flash"
+               Use the exact model ID string for accurate research data.
+     client  [REQUIRED] — the AI client / interface being used.
+               Examples: "claude-code", "claude-desktop", "cursor", "roo-code",
+                         "5ire", "trae", "vscode-copilot"
+
+   MCP tool: get_llm_identity()
+     No parameters. Returns the currently saved model and client strings.
+
    Files:
    - hexstrike_server.py : _load_hexstrike_config() reads config from disk
    - hexstrike_server.py : _save_hexstrike_config() writes config to disk
@@ -31,32 +113,45 @@ HEXSTRIKE ADDED FEATURES
 
 
 3. UNIVERSAL TOOL CALL LOGGER (ALL LLMs)
+   *** NO MANUAL INPUT REQUIRED — logging is fully automatic ***
    Every tool call whether made by Claude, DeepSeek, or any other LLM is now
-   logged to tool_logger.log. Logging happens at two levels:
+   logged to tool_logger.log. Logging happens at three levels:
 
    a) MCP level: catches all hexstrike MCP tool calls from any LLM client
       (Claude Code, DeepSeek via 5ire/cursor/roo-code, GPT-4, etc.)
    b) Hook level: catches Claude native tools (Bash, Read, Grep, WebSearch, etc.)
-      and DeepSeek native tools (code_interpreter, web_search, etc.) via a
-      Claude Code PreToolUse hook that fires before every built-in tool call.
+      via a Claude Code PreToolUse hook. Only fires when Claude Code is the client.
+   c) LLM Proxy (hooks/llm_proxy.py): catches native LLM tool calls (DeepSeek
+      code_interpreter, roo-code file tools, etc.) from ANY client by sitting
+      between the client and the real LLM API. See section 7 for setup.
 
    Hexstrike tools are logged only at the MCP level. Native LLM tools are logged
-   only at the hook level. This avoids duplicate entries.
+   by the hook (Claude Code) or the proxy (all other clients). No duplicates.
 
-   Note: elapsed_seconds in hook log entries reflects the last value stored by
-   stop_timer(). It will be null during an active session until stop_timer() is called.
+   Log entry format (session-structured):
+     ════════════════════════════════════════════════════════════════════════════════
+     SESSION START
+       Model     : <llm-model>
+       Client    : <client>
+       CTF Type  : <type>
+       Difficulty: <difficulty>
+       Prompt    : <prompt_type>
+     ════════════════════════════════════════════════════════════════════════════════
+     TOOL_CALL | [hexstrike] <tool_name> | <params>
+     TOOL_CALL | [claude] <tool_name> | <params>
+     ...
+     ════════════════════════════════════════════════════════════════════════════════
+     SESSION END
+       Model     : <llm-model>    Client    : <client>
+       CTF Type  : <type>         Difficulty: <difficulty>
+       Prompt    : <prompt_type>  Elapsed   : <seconds>s
+       Success   : <outcome>
+     ════════════════════════════════════════════════════════════════════════════════
 
-   Log entry format:
-      [TIMESTAMP] | ── SESSION [UUID] ── | model=[model] | client=[client]
-      ── CONTEXT ── | ctf_name=[name] | ctf_difficulty=[difficulty] | ctf_type=[type] | tools_selected=[X]
-      ── TIMER_START ──
-      TOOL DECISION | tool=[tool_name] | llm_chain_pos=[pos] | attack_chain_priority=[priority] | elapsed_seconds=[X]
-      TOOL DECISION | tool=[tool_name] | llm_chain_pos=[pos] | attack_chain_priority=[priority] | elapsed_seconds=[X]
-      TOOL DECISION | tool=[tool_name] | llm_chain_pos=[pos] | attack_chain_priority=[priority] | elapsed_seconds=[X]
-      TOOL DECISION | tool=[tool_name] | llm_chain_pos=[pos] | attack_chain_priority=[priority] | elapsed_seconds=[X]
-      ── TIMER_STOP ──
-      [TIMESTAMP] | ── END SESSION [UUID] ── | total_time_spent=[X]
-      ── TEST RESULT: [SUCCESSFUL/FAILED/PARTIAL] ──
+   Session markers are written by hexstrike_mcp.py when start_timer/stop_timer fire.
+   Native LLM tool calls (Claude Bash/Read/Write etc.) are logged by the hook only
+   within an active session. No tool calls are logged before start_timer or after
+   stop_timer — eliminating setup-phase noise.
 
    Files:
    - hexstrike_mcp.py        : _MCP_TOOL_LOG_PATH path to shared log file
@@ -74,15 +169,41 @@ HEXSTRIKE ADDED FEATURES
 
 
 4. CTF SESSION METADATA
-   Lets you attach CTF challenge info to every log entry. You can set the difficulty
-   and category. All of it gets saved to hexstrike_config.json and included
-   automatically in all tool_logger.log entries from that point forward.
+   *** REQUIRES MANUAL INPUT — call before starting each new challenge ***
+   Lets you attach CTF challenge info to every log entry. You can set the difficulty,
+   the category, and the type of prompting strategy being used. All of it gets saved
+   to hexstrike_config.json and included automatically in all tool_logger.log entries
+   from that point forward.
 
-   Fields:
-   - ctf_name       : Custom Value
-   - ctf_difficulty : Easy, Medium, Hard
-   - ctf_type       : Web, Crypto, Blockchain, Forensics, General, Reversing, Binary
-   - prompt_type    : direct, comprehensive  (field may be removed in a future version)
+   MCP tool: set_ctf_metadata(ctf_difficulty, ctf_type, prompt_type)
+     All three parameters are optional strings — supply only what you want to update.
+     Omitting a parameter leaves its existing value unchanged in the config.
+
+     ctf_difficulty [optional] — difficulty rating of the challenge.
+                     Accepted: "Easy", "Medium", "Hard", "Insane"
+                     Custom values are also accepted (any non-empty string).
+
+     ctf_type       [optional] — challenge category / domain.
+                     Accepted: "Web", "Pwn", "Crypto", "Forensics", "Reversing",
+                               "OSINT", "Misc", "Network", "Cloud", "Mobile"
+                     Custom values are also accepted.
+
+     prompt_type    [optional] — prompting strategy used with the LLM.
+                     Accepted: "direct", "chain-of-thought", "few-shot",
+                               "zero-shot", "role-play", "agentic"
+                     Custom values are also accepted.
+
+     At least one parameter must be provided or the call returns an error.
+
+   MCP tool: get_ctf_session_info()
+     No parameters. Returns all current CTF session fields plus timer data.
+
+   Fields stored in config:
+   - ctf_difficulty : Easy, Medium, Hard, Insane (or any custom value)
+   - ctf_type       : Web, Pwn, Crypto, Forensics, Reversing, OSINT, Misc,
+                      Network, Cloud, Mobile (or any custom value)
+   - prompt_type    : direct, chain-of-thought, few-shot, zero-shot,
+                      role-play, agentic (or any custom value)
 
    Files:
    - hexstrike_server.py : _load_hexstrike_config() loads all config fields
@@ -112,17 +233,20 @@ HEXSTRIKE ADDED FEATURES
 
 
 5. SUCCESS STATUS
+   *** REQUIRES MANUAL INPUT — call when the challenge outcome is known ***
    Mark whether the CTF challenge was solved, failed, or partially done.
    Gets saved to hexstrike_config.json and included in all log entries after that.
 
-   Set this MANUALLY after each session. Do not rely on the LLM to set it —
-   it will produce unreliable or self-reported results.
+   MCP tool: set_success(success)
+     success [REQUIRED] — a single string describing the outcome.
+               Accepted values:
+               "true" / "yes" / "success"  →  challenge solved
+               "false" / "no" / "fail"     →  challenge not solved
+               "partial"                   →  partial flag or incomplete solution
+               "in-progress"               →  still working (can call again later)
 
-   Accepted values:
-   - "true" / "yes" / "success"  : challenge solved
-   - "false" / "no" / "fail"     : challenge not solved
-   - "partial"                   : partial flag or incomplete solution
-   - "in-progress"               : still working on it
+               Call this BEFORE stop_timer() so the final log entry
+               already carries the correct success value.
 
    Files:
    - hexstrike_server.py : POST /api/config/set-success HTTP endpoint
@@ -135,9 +259,20 @@ HEXSTRIKE ADDED FEATURES
 
 
 6. SESSION TIMER
+   *** REQUIRES MANUAL INPUT — start_timer() and stop_timer() must be called by hand ***
    Start and stop a wall-clock timer for each CTF challenge. The elapsed time gets
    stored in hexstrike_config.json and added to every log entry so you can see how
    long the LLM took to use each tool.
+
+   MCP tool: start_timer()
+     No parameters. Records the current UTC timestamp as timer_start.
+     Call this BEFORE issuing any scanning or exploitation tools for the challenge.
+     If called again mid-challenge, it resets the timer.
+
+   MCP tool: stop_timer()
+     No parameters. Records timer_end and computes elapsed_seconds.
+     Call this AFTER set_success() at the very end of the challenge.
+     Returns: { timer_start, timer_end, elapsed_seconds }
 
    Files:
    - hexstrike_server.py   : start_timer() / POST /api/config/start-timer HTTP endpoint
@@ -164,4 +299,39 @@ HEXSTRIKE ADDED FEATURES
      # manually set success after reviewing results
      stop_timer()
      # every tool call in between gets logged with all the metadata and elapsed time
-     
+
+
+
+7. LLM API PROXY (roo-code, 5ire, trae, cursor — non-Claude clients)
+   *** START ONCE — then configure your client to point at it ***
+   Intercepts native LLM tool calls (DeepSeek code_interpreter, roo-code file
+   tools, etc.) that bypass both the Claude Code hook and the MCP logger.
+   Works with any OpenAI-compatible client by acting as a transparent pass-through.
+
+   File:
+   - hooks/llm_proxy.py   : proxy server
+
+   How to start:
+     python3 hooks/llm_proxy.py                              # DeepSeek, port 8889
+     python3 hooks/llm_proxy.py --backend https://api.openai.com --port 8890
+     python3 hooks/llm_proxy.py --backend https://api.deepseek.com --port 8889
+
+   Client configuration (roo-code / 5ire / trae / cursor):
+     Base URL : http://127.0.0.1:8889/v1
+     API Key  : <your real DeepSeek/OpenAI key — passed through unchanged>
+
+   What gets logged:
+   - Every tool_call returned by the LLM in its API response
+   - Both streaming (SSE) and non-streaming responses are handled
+   - Source label is auto-detected from the model name:
+       deepseek-r1 / deepseek-v3  → [deepseek]
+       gpt-4o / o3                → [openai]
+       gemini-*                   → [gemini]
+       llama-* / meta-*           → [llama]
+       anything else              → [<model-slug>]
+   - Like the hook, only logs within an active session (after start_timer)
+
+   What does NOT get logged:
+   - Hexstrike MCP tool calls (those are caught by the MCP-level logger)
+   - The proxy does NOT modify, block, or inspect request bodies
+     beyond reading the model name and stream flag.
