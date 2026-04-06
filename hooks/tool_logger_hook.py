@@ -35,13 +35,6 @@ CLAUDE_NATIVE_TOOLS = {
     "mcp__ide__executeCode", "mcp__ide__getDiagnostics",
 }
 
-# DeepSeek built-in tool names (when routed through a Claude Code-compatible hook)
-DEEPSEEK_NATIVE_TOOLS = {
-    "code_interpreter", "web_search", "python", "execute_python",
-    "search", "retrieval", "calculator",
-    "browser", "file_search", "text_editor",
-}
-
 
 def _load_config() -> dict:
     try:
@@ -66,8 +59,6 @@ def _is_session_active(config: dict) -> bool:
 def _get_tool_source(tool_name: str) -> str:
     if tool_name in CLAUDE_NATIVE_TOOLS:
         return "claude"
-    if tool_name in DEEPSEEK_NATIVE_TOOLS:
-        return "deepseek"
     if tool_name.startswith("mcp__ide__"):
         return "ide"
     if tool_name.startswith("mcp__"):

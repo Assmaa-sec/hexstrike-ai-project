@@ -121,7 +121,6 @@ def _load_hexstrike_config() -> Dict[str, Any]:
         "ctf_difficulty": "unknown",
         "ctf_type": "unknown",
         "prompt_type": "unknown",
-        "success": "unknown",
         "timer_start": None,
         "timer_end": None,
         "elapsed_seconds": None,
@@ -166,7 +165,6 @@ def get_ctf_meta() -> Dict[str, Any]:
         "ctf_difficulty": config.get("ctf_difficulty", "unknown"),
         "ctf_type": config.get("ctf_type", "unknown"),
         "prompt_type": config.get("prompt_type", "unknown"),
-        "success": config.get("success", "unknown"),
         "timer_start": config.get("timer_start"),
         "timer_end": config.get("timer_end"),
         "elapsed_seconds": config.get("elapsed_seconds"),
@@ -9512,28 +9510,6 @@ def get_ctf_meta_endpoint():
     """Return all CTF session metadata."""
     return jsonify(get_ctf_meta())
 
-@app.route("/api/log/tool-call", methods=["POST"])
-def log_tool_call():
-    """Log a tool call from any LLM client (Claude, DeepSeek, etc.) to tool_logger.log."""
-    try:
-        data = request.get_json() or {}
-        tool_name = data.get("tool_name", "unknown")
-        llm_model = data.get("llm_model", "unknown")
-        client = data.get("client", "unknown")
-        tool_source = data.get("tool_source", "hexstrike")  # 'hexstrike' or 'llm-native'
-        params_summary = data.get("params_summary", "")
-        meta = get_ctf_meta()
-        tool_logger.info(
-            f"TOOL_CALL | tool={tool_name} | source={tool_source} | "
-            f"model={llm_model} | client={client} | "
-            f"ctf_difficulty={meta['ctf_difficulty']} | ctf_type={meta['ctf_type']} | "
-            f"prompt_type={meta['prompt_type']} | success={meta['success']} | "
-            f"timer_start={meta['timer_start']} | elapsed_seconds={meta['elapsed_seconds']} | "
-            f"params={params_summary}"
-        )
-        return jsonify({"success": True})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 # ============================================================================
 # PROCESS MANAGEMENT API ENDPOINTS (v5.0 ENHANCEMENT)
