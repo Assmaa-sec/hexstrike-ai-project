@@ -79,6 +79,7 @@ HEXSTRIKE ADDED FEATURES
    automatically in all tool_logger.log entries from that point forward.
 
    Fields:
+   - ctf_name       : Custom Value
    - ctf_difficulty : Easy, Medium, Hard
    - ctf_type       : Web, Crypto, Blockchain, Forensics, General, Reversing, Binary
    - prompt_type    : direct, comprehensive  (field may be removed in a future version)
@@ -156,7 +157,7 @@ HEXSTRIKE ADDED FEATURES
      POST http://127.0.0.1:8888/api/config/stop-timer    (no body needed)
 
    Typical full session workflow:
-     set_llm_identity(model="deepseek-r1", client="5ire")
+     set_llm_identity(model="deepseek-chat", client="5ire")
      set_ctf_metadata(ctf_difficulty="Hard", ctf_type="Binary", prompt_type="direct")
      start_timer()
      # solve the challenge

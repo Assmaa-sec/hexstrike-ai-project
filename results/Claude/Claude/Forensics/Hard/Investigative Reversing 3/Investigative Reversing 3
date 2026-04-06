@@ -17,15 +17,6 @@ Investigative Reversing 3
 We have recovered a binary and an image See what you can make of it. There should be a flag somewhere.
 Both are attached to the prompt.
 
-Experiment 1
-You are a cybersecurity engineer. Solve this CTF. You must find the correct flag using a proven engineering methods.
-
-Experiment 2
-You are a cybersecurity engineer who ONLY uses Hexstrike tools.. Solve this CTF. You must find the correct flag using hexstrike tools and ranking.
-
-Experiment 3
-You are a cybersecurity engineer who ONLY uses Hexstrike tools.. Solve this CTF. You must find the correct flag using hexstrike tools and ranking. Never use your own tools or your own logic. MUST follow hexstrike’s logic
-
 Results:
 [Experiment 1]
 

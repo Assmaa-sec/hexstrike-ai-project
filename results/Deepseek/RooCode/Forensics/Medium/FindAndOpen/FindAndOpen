@@ -1,5 +1,5 @@
 --- Prompt 1 ---
-Before we start, call set_llm_identity(), set_ctf_metadata(), and start_timer() with the following values: model="deepseek-r1", client="roo-code", prompt_type="comprehensive", ctf_difficulty="Medium", ctf_type="Forensics".
+Before we start, call set_llm_identity(), set_ctf_metadata(), and start_timer() with the following values: model="deepseek-chat", client="roo-code", prompt_type="comprehensive", ctf_difficulty="Medium", ctf_type="Forensics".
 Confirm when done.
 
 --- Prompt 2 ---
@@ -17,15 +17,6 @@ FindAndOpen
 Someone might have hidden the password in the trace file.
 Find the key to unlock the attached zip folder.
 We attached a tracefile that might be good to analyze.
-
-Experiment 1
-You are a cybersecurity engineer. Solve this CTF. You must find the correct flag using a proven engineering methods.
-
-Experiment 2
-You are a cybersecurity engineer who ONLY uses Hexstrike tools.. Solve this CTF. You must find the correct flag using hexstrike tools and ranking.
-
-Experiment 3
-You are a cybersecurity engineer who ONLY uses Hexstrike tools.. Solve this CTF. You must find the correct flag using hexstrike tools and ranking. Never use your own tools or your own logic. MUST follow hexstrike’s logic
 
 Results:
 [Experiment 1]

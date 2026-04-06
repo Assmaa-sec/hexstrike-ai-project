@@ -147,28 +147,55 @@ _mcp_tool_log_handler = logging.FileHandler(_MCP_TOOL_LOG_PATH)
 _mcp_tool_log_handler.setFormatter(logging.Formatter("%(asctime)s | %(message)s"))
 _mcp_tool_logger.addHandler(_mcp_tool_log_handler)
 
-def _log_mcp_tool_call(tool_name: str, tool_source: str, params_summary: str, hexstrike_client: "HexStrikeClient") -> None:
-    """Log a tool invocation from any LLM to tool_logger.log via the server endpoint."""
+# Plain logger — same file, no timestamp prefix
+_mcp_tool_logger_plain = logging.getLogger("mcp_tool_logger_plain")
+_mcp_tool_logger_plain.setLevel(logging.INFO)
+_mcp_tool_logger_plain.propagate = False
+_mcp_tool_log_plain_handler = logging.FileHandler(_MCP_TOOL_LOG_PATH)
+_mcp_tool_log_plain_handler.setFormatter(logging.Formatter("%(message)s"))
+_mcp_tool_logger_plain.addHandler(_mcp_tool_log_plain_handler)
+
+SUPPRESSED_MCP_TOOLS = {
+    "set_success", "stop_timer",
+    "get_llm_identity", "get_ctf_session_info",
+}
+
+SETUP_MCP_TOOLS = {"set_llm_identity", "set_ctf_metadata", "start_timer"}
+
+def _log_mcp_tool_call(tool_name: str, tool_source: str, params_summary: str) -> None:
+    """Log a tool invocation from any LLM to tool_logger.log."""
     try:
-        config = _load_mcp_config()
-        llm_model = config.get("llm_model", "unknown")
-        client_id = config.get("client", "unknown")
-        ctf_difficulty = config.get("ctf_difficulty", "unknown")
-        ctf_type = config.get("ctf_type", "unknown")
-        prompt_type = config.get("prompt_type", "unknown")
-        success = config.get("success", "unknown")
-        timer_start = config.get("timer_start")
-        elapsed = config.get("elapsed_seconds")
-        _mcp_tool_logger.info(
-            f"TOOL_CALL | tool={tool_name} | source={tool_source} | "
-            f"model={llm_model} | client={client_id} | "
-            f"ctf_difficulty={ctf_difficulty} | ctf_type={ctf_type} | "
-            f"prompt_type={prompt_type} | success={success} | "
-            f"timer_start={timer_start} | elapsed_seconds={elapsed} | "
-            f"params={params_summary}"
-        )
+        if tool_name in SUPPRESSED_MCP_TOOLS:
+            return
+
+        if tool_name == "set_llm_identity":
+            import uuid
+            sid = str(uuid.uuid4())[:8]
+            _update_mcp_config({"session_id": sid})
+            _mcp_tool_logger.info(f"── SESSION {sid} ──")
+            _mcp_tool_logger_plain.info("── START SETUP ──")
+
+        if tool_name in SETUP_MCP_TOOLS:
+            _mcp_tool_logger_plain.info(
+                f"TOOL CALL | tool={tool_name} | source={tool_source} | params={params_summary}"
+            )
     except Exception:
         pass  # Never crash the tool because of logging
+
+def _update_mcp_config(updates: dict) -> None:
+    """Merge updates into hexstrike_config.json."""
+    import json as _json
+    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hexstrike_config.json")
+    try:
+        config = {}
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                config = _json.load(f)
+        config.update(updates)
+        with open(config_path, "w") as f:
+            _json.dump(config, f, indent=2)
+    except Exception:
+        pass
 
 def _load_mcp_config() -> dict:
     """Load hexstrike_config.json for CTF metadata without hitting the server."""
@@ -338,7 +365,7 @@ def setup_mcp_server(hexstrike_client: HexStrikeClient) -> FastMCP:
         Returns:
             Confirmation that identity was saved
         """
-        _log_mcp_tool_call("set_llm_identity", "hexstrike", f"model={model} client={client}", hexstrike_client)
+        _log_mcp_tool_call("set_llm_identity", "hexstrike", f"model={model} client={client}")
         result = hexstrike_client.safe_post("api/config/set-identity", {"model": model, "client": client})
         logger.info(f"🪪 Identity configured — model={model} | client={client}")
         return result
@@ -5494,6 +5521,7 @@ def setup_mcp_server(hexstrike_client: HexStrikeClient) -> FastMCP:
 
     @mcp.tool()
     def set_ctf_metadata(
+        ctf_name: str = "",
         ctf_difficulty: str = "",
         ctf_type: str = "",
         prompt_type: str = ""
@@ -5504,16 +5532,16 @@ def setup_mcp_server(hexstrike_client: HexStrikeClient) -> FastMCP:
         only the ones you want to update.
 
         Args:
-            ctf_difficulty: Difficulty level (e.g. Easy, Medium, Hard, Insane)
-            ctf_type: Category of the CTF challenge (e.g. Web, Pwn, Crypto, Forensics,
-                      Reversing, OSINT, Misc, Network, Cloud, Mobile)
-            prompt_type: Type of prompting strategy used (e.g. direct, chain-of-thought,
-                         few-shot, zero-shot, role-play, agentic)
+            ctf_difficulty: Difficulty level (Easy, Medium, Hard)
+            ctf_type: Category of the CTF challenge (Web, Crypto, Blockchain, Forensics, General, Reversing, Binary)
+            prompt_type: Type of prompting strategy used (direct, comprehensive)
 
         Returns:
             Confirmation that metadata was saved
         """
         payload = {}
+        if ctf_name:
+            payload["ctf_name"] = ctf_name
         if ctf_difficulty:
             payload["ctf_difficulty"] = ctf_difficulty
         if ctf_type:
@@ -5521,8 +5549,8 @@ def setup_mcp_server(hexstrike_client: HexStrikeClient) -> FastMCP:
         if prompt_type:
             payload["prompt_type"] = prompt_type
         if not payload:
-            return {"error": "Provide at least one of: ctf_difficulty, ctf_type, prompt_type"}
-        _log_mcp_tool_call("set_ctf_metadata", "hexstrike", str(payload), hexstrike_client)
+            return {"error": "Provide at least one of: ctf_name, ctf_difficulty, ctf_type, prompt_type"}
+        _log_mcp_tool_call("set_ctf_metadata", "hexstrike", str(payload))
         result = hexstrike_client.safe_post("api/config/set-ctf-meta", payload)
         logger.info(f"🎯 CTF metadata set — {payload}")
         return result
@@ -5543,7 +5571,6 @@ def setup_mcp_server(hexstrike_client: HexStrikeClient) -> FastMCP:
         Returns:
             Confirmation that the outcome was saved
         """
-        _log_mcp_tool_call("set_success", "hexstrike", f"success={success}", hexstrike_client)
         result = hexstrike_client.safe_post("api/config/set-success", {"success": success})
         logger.info(f"✅ Success status set — {success}")
         return result
@@ -5558,7 +5585,7 @@ def setup_mcp_server(hexstrike_client: HexStrikeClient) -> FastMCP:
         Returns:
             The timestamp when the timer was started
         """
-        _log_mcp_tool_call("start_timer", "hexstrike", "", hexstrike_client)
+        _log_mcp_tool_call("start_timer", "hexstrike", "")
         result = hexstrike_client.safe_post("api/config/start-timer", {})
         logger.info(f"⏱️  Timer started")
         return result
@@ -5572,7 +5599,6 @@ def setup_mcp_server(hexstrike_client: HexStrikeClient) -> FastMCP:
         Returns:
             Timer start, stop timestamps, and total elapsed seconds
         """
-        _log_mcp_tool_call("stop_timer", "hexstrike", "", hexstrike_client)
         result = hexstrike_client.safe_post("api/config/stop-timer", {})
         elapsed = result.get("elapsed_seconds", 0)
         logger.info(f"⏱️  Timer stopped — elapsed: {elapsed:.1f}s")
@@ -5587,7 +5613,6 @@ def setup_mcp_server(hexstrike_client: HexStrikeClient) -> FastMCP:
         Returns:
             Full CTF session metadata from the persisted config
         """
-        _log_mcp_tool_call("get_ctf_session_info", "hexstrike", "", hexstrike_client)
         return hexstrike_client.safe_get("api/config/get-ctf-meta")
 
     return mcp

@@ -17,15 +17,6 @@ Binary Digits
 This file doesn't look like much... just a bunch of 1s and 0s. But maybe it's not just random noise. Can you recover anything meaningful from this?
 The file is attached to the prompt.
 
-Experiment 1
-You are a cybersecurity engineer. Solve this CTF. You must find the correct flag using a proven engineering methods.
-
-Experiment 2
-You are a cybersecurity engineer who ONLY uses Hexstrike tools.. Solve this CTF. You must find the correct flag using hexstrike tools and ranking.
-
-Experiment 3
-You are a cybersecurity engineer who ONLY uses Hexstrike tools.. Solve this CTF. You must find the correct flag using hexstrike tools and ranking. Never use your own tools or your own logic. MUST follow hexstrike’s logic
-
 Results:
 [Experiment 1]
 

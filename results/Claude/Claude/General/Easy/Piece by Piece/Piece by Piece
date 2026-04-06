@@ -17,15 +17,6 @@ Piece by Piece
 After logging in, you will find multiple file parts in your home directory. These parts need to be combined and extracted to reveal the flag.
 SSH to dolphin-cove.picoctf.net:[PORT] and login as ctf-player with password 1ad5be0d.
 
-Experiment 1
-You are a cybersecurity engineer. Solve this CTF. You must find the correct flag using a proven engineering methods.
-
-Experiment 2
-You are a cybersecurity engineer who ONLY uses Hexstrike tools.. Solve this CTF. You must find the correct flag using hexstrike tools and ranking.
-
-Experiment 3
-You are a cybersecurity engineer who ONLY uses Hexstrike tools.. Solve this CTF. You must find the correct flag using hexstrike tools and ranking. Never use your own tools or your own logic. MUST follow hexstrike’s logic
-
 Results:
 [Experiment 1]
 

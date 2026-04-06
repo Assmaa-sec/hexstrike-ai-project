@@ -97,6 +97,14 @@ tool_logger.propagate = False
 _tool_log_handler = logging.FileHandler("tool_logger.log")
 _tool_log_handler.setFormatter(logging.Formatter("%(asctime)s | %(message)s"))
 tool_logger.addHandler(_tool_log_handler)
+
+# Plain logger — same file, no timestamp prefix
+tool_logger_plain = logging.getLogger("tool_logger_plain")
+tool_logger_plain.setLevel(logging.INFO)
+tool_logger_plain.propagate = False
+_tool_log_plain_handler = logging.FileHandler("tool_logger.log")
+_tool_log_plain_handler.setFormatter(logging.Formatter("%(message)s"))
+tool_logger_plain.addHandler(_tool_log_plain_handler)
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── Hexstrike Config (LLM / Client identity) ──────────────────────────────────
@@ -108,6 +116,8 @@ def _load_hexstrike_config() -> Dict[str, Any]:
         "llm_model": "unknown",
         "client": "unknown",
         "last_updated": None,
+        "session_id": None,
+        "ctf_name": "unknown",
         "ctf_difficulty": "unknown",
         "ctf_type": "unknown",
         "prompt_type": "unknown",
@@ -152,6 +162,7 @@ def get_ctf_meta() -> Dict[str, Any]:
     """Return CTF metadata from persisted config."""
     config = _load_hexstrike_config()
     return {
+        "ctf_name": config.get("ctf_name", "unknown"),
         "ctf_difficulty": config.get("ctf_difficulty", "unknown"),
         "ctf_type": config.get("ctf_type", "unknown"),
         "prompt_type": config.get("prompt_type", "unknown"),
@@ -1068,44 +1079,27 @@ class IntelligentDecisionEngine:
         return None
 
     def log_tool_decision(self, selected_tools: List[str], profile: 'TargetProfile', objective: str, session_id: str = None) -> None:
-        """Log each tool chosen by the decision engine with its chain position, effectiveness score, attack chain priority, LLM model, and client."""
-        import uuid
-        sid = session_id or str(uuid.uuid4())[:8]
+        """Log TOOL DECISION lines into the active session block."""
+        config = _load_hexstrike_config()
+        sid = session_id or config.get("session_id") or "unknown"
         target_type = profile.target_type.value
-        effectiveness_map = self.tool_effectiveness.get(target_type, {})
-        llm_model, client = get_llm_identity()
+        timer_start = config.get("timer_start")
 
-        meta = get_ctf_meta()
-        tool_logger.info(
-            f"── SCAN SESSION {sid} | target={profile.target} | objective={objective} | "
-            f"target_type={target_type} | tools_selected={len(selected_tools)} | "
-            f"model={llm_model} | client={client} | "
-            f"ctf_difficulty={meta['ctf_difficulty']} | ctf_type={meta['ctf_type']} | "
-            f"prompt_type={meta['prompt_type']} | success={meta['success']} | "
-            f"timer_start={meta['timer_start']} | elapsed_seconds={meta['elapsed_seconds']} ──"
-        )
+        def _elapsed() -> str:
+            if not timer_start:
+                return "N/A"
+            try:
+                return f"{(datetime.now() - datetime.fromisoformat(timer_start)).total_seconds():.1f}s"
+            except Exception:
+                return "N/A"
 
         for chain_pos, tool in enumerate(selected_tools, start=1):
-            score = effectiveness_map.get(tool)
             chain_priority = self._get_attack_chain_priority(tool, target_type, objective)
-
-            tool_logger.info(
-                f"TOOL_DECISION | session={sid} | "
-                f"tool={tool} | "
-                f"llm_chain_pos={chain_pos} | "
-                f"effectiveness_score={score if score is not None else 'N/A'} | "
+            tool_logger_plain.info(
+                f"TOOL DECISION | tool={tool} | llm_chain_pos={chain_pos} | "
                 f"attack_chain_priority={chain_priority if chain_priority is not None else 'N/A'} | "
-                f"target={profile.target} | "
-                f"target_type={target_type} | "
-                f"objective={objective} | "
-                f"model={llm_model} | "
-                f"client={client} | "
-                f"ctf_difficulty={meta['ctf_difficulty']} | ctf_type={meta['ctf_type']} | "
-                f"prompt_type={meta['prompt_type']} | success={meta['success']} | "
-                f"timer_start={meta['timer_start']} | elapsed_seconds={meta['elapsed_seconds']}"
+                f"elapsed_seconds={_elapsed()}"
             )
-
-        tool_logger.info(f"── END SESSION {sid} ──")
 
     def select_optimal_tools(self, profile: TargetProfile, objective: str = "comprehensive") -> List[str]:
         """Select optimal tools based on target profile and objective"""
@@ -9454,10 +9448,12 @@ def get_identity():
 
 @app.route("/api/config/set-ctf-meta", methods=["POST"])
 def set_ctf_meta():
-    """Set CTF session metadata: difficulty, type, and prompt type."""
+    """Set CTF session metadata: name, difficulty, type, and prompt type."""
     try:
         data = request.get_json() or {}
         updates = {}
+        if "ctf_name" in data:
+            updates["ctf_name"] = str(data["ctf_name"]).strip()
         if "ctf_difficulty" in data:
             updates["ctf_difficulty"] = str(data["ctf_difficulty"]).strip()
         if "ctf_type" in data:
@@ -9465,7 +9461,7 @@ def set_ctf_meta():
         if "prompt_type" in data:
             updates["prompt_type"] = str(data["prompt_type"]).strip()
         if not updates:
-            return jsonify({"error": "Provide at least one of: ctf_difficulty, ctf_type, prompt_type"}), 400
+            return jsonify({"error": "Provide at least one of: ctf_name, ctf_difficulty, ctf_type, prompt_type"}), 400
         config = _update_hexstrike_config(updates)
         logger.info(f"🎯 CTF meta updated — {updates}")
         return jsonify({"success": True, "message": "CTF metadata saved", **updates})
@@ -9489,11 +9485,24 @@ def set_success():
 
 @app.route("/api/config/start-timer", methods=["POST"])
 def start_timer():
-    """Start the session timer."""
+    """Start the session timer. Also closes the setup block and writes context to the log."""
     try:
         now = datetime.now().isoformat()
         _update_hexstrike_config({"timer_start": now, "timer_end": None, "elapsed_seconds": None})
-        tool_logger.info(f"TIMER_START | timestamp={now}")
+        config = _load_hexstrike_config()
+        llm_model = config.get("llm_model", "unknown")
+        client = config.get("client", "unknown")
+        ctf_name = config.get("ctf_name", "unknown")
+        ctf_difficulty = config.get("ctf_difficulty", "unknown")
+        ctf_type = config.get("ctf_type", "unknown")
+
+        tool_logger_plain.info("── END SETUP ──")
+        tool_logger_plain.info(f"── CONTEXT ── | model={llm_model} | client={client}")
+        tool_logger_plain.info(
+            f"── CONTEXT ── | ctf_name={ctf_name} | ctf_difficulty={ctf_difficulty} | ctf_type={ctf_type}"
+        )
+        tool_logger_plain.info("── TIMER_START ──")
+
         logger.info(f"⏱️  Timer started at {now}")
         return jsonify({"success": True, "timer_start": now})
     except Exception as e:
@@ -9501,7 +9510,7 @@ def start_timer():
 
 @app.route("/api/config/stop-timer", methods=["POST"])
 def stop_timer():
-    """Stop the session timer and record elapsed time."""
+    """Stop the session timer and close the session block in the log."""
     try:
         config = _load_hexstrike_config()
         timer_start = config.get("timer_start")
@@ -9511,7 +9520,11 @@ def stop_timer():
         start_dt = datetime.fromisoformat(timer_start)
         elapsed = (now - start_dt).total_seconds()
         _update_hexstrike_config({"timer_end": now.isoformat(), "elapsed_seconds": elapsed})
-        tool_logger.info(f"TIMER_STOP | timer_start={timer_start} | timer_end={now.isoformat()} | elapsed_seconds={elapsed:.1f}")
+        sid = config.get("session_id", "unknown")
+
+        tool_logger_plain.info("── TIMER_STOP ──")
+        tool_logger.info(f"── END SESSION {sid} ── | total_time_spent={elapsed:.1f}s")
+
         logger.info(f"⏱️  Timer stopped — elapsed: {elapsed:.1f}s")
         return jsonify({"success": True, "timer_start": timer_start, "timer_end": now.isoformat(), "elapsed_seconds": elapsed})
     except Exception as e:

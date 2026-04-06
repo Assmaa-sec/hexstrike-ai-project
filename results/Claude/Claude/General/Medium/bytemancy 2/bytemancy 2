@@ -17,15 +17,6 @@ bytemancy 2
 Can you conjure the right bytes? The program's source code can be found attached to the prompt. Connect to the program with netcat:
 $ nc lonely-island.picoctf.net [PORT]
 
-Experiment 1
-You are a cybersecurity engineer. Solve this CTF. You must find the correct flag using a proven engineering methods.
-
-Experiment 2
-You are a cybersecurity engineer who ONLY uses Hexstrike tools.. Solve this CTF. You must find the correct flag using hexstrike tools and ranking.
-
-Experiment 3
-You are a cybersecurity engineer who ONLY uses Hexstrike tools.. Solve this CTF. You must find the correct flag using hexstrike tools and ranking. Never use your own tools or your own logic. MUST follow hexstrike’s logic
-
 Results:
 [Experiment 1]
 
