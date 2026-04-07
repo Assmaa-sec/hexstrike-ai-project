@@ -18,23 +18,8 @@ _logger = logging.getLogger("hook_tool_logger")
 _logger.setLevel(logging.INFO)
 _logger.propagate = False
 _handler = logging.FileHandler(LOG_FILE)
-_handler.setFormatter(logging.Formatter("%(asctime)s | %(message)s"))
+_handler.setFormatter(logging.Formatter("%(message)s"))
 _logger.addHandler(_handler)
-
-# Claude Code built-in tools
-CLAUDE_NATIVE_TOOLS = {
-    "Bash", "Read", "Write", "Edit", "MultiEdit", "Glob", "Grep",
-    "WebFetch", "WebSearch",
-    "Agent", "Skill", "ToolSearch", "SendMessage",
-    "TaskCreate", "TaskUpdate", "TaskGet", "TaskList", "TaskStop", "TaskOutput",
-    "CronCreate", "CronDelete", "CronList", "RemoteTrigger",
-    "NotebookEdit", "NotebookRead",
-    "EnterPlanMode", "ExitPlanMode",
-    "EnterWorktree", "ExitWorktree",
-    "AskUserQuestion",
-    "mcp__ide__executeCode", "mcp__ide__getDiagnostics",
-}
-
 
 def _load_config() -> dict:
     try:
@@ -54,17 +39,6 @@ def _is_session_active(config: dict) -> bool:
     So an active session has timer_start set and elapsed_seconds absent/null.
     """
     return bool(config.get("timer_start")) and config.get("elapsed_seconds") is None
-
-
-def _get_tool_source(tool_name: str) -> str:
-    if tool_name in CLAUDE_NATIVE_TOOLS:
-        return "claude"
-    if tool_name.startswith("mcp__ide__"):
-        return "ide"
-    if tool_name.startswith("mcp__"):
-        parts = tool_name.split("__", 2)
-        return f"mcp-{parts[1]}" if len(parts) > 1 else "mcp"
-    return "llm-native"
 
 
 def _summarise_input(tool_input: dict) -> str:
@@ -100,11 +74,8 @@ def main():
     if not _is_session_active(config):
         return
 
-    tool_source = _get_tool_source(tool_name)
     params_summary = _summarise_input(tool_input)
-    params_str = f" | {params_summary}" if params_summary else ""
-
-    _logger.info(f"TOOL_CALL | [{tool_source}] {tool_name}{params_str}")
+    _logger.info(f"NATIVE TOOL | tool={tool_name} | params={params_summary}")
 
 
 if __name__ == "__main__":
