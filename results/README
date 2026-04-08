@@ -46,3 +46,42 @@ The exercise block at the bottom of each file contains the challenge name, descr
 | Experiment 1 | Free solve — any tools, any method |
 | Experiment 2 | HexStrike tools only, ranked |
 | Experiment 3 | HexStrike tools only, no outside logic, strict adherence |
+
+## Test Progress
+DEEPSEEK
+  RooCode
+    [ ] Binary
+    [ ] Blockchain
+    [ ] Crypto
+    [ ] Forensics
+    [ ] General
+    [ ] Reversing
+    [ ] Web
+
+  5ire
+    [ ] Binary
+    [ ] Blockchain
+    [ ] Crypto
+    [ ] Forensics
+    [ ] General
+    [ ] Reversing
+    [ ] Web
+
+  Trae
+    [ ] Binary
+    [ ] Blockchain
+    [ ] Crypto
+    [ ] Forensics
+    [ ] General
+    [ ] Reversing
+    [ ] Web
+
+CLAUDE
+  ClaudeCode
+    [ ] Binary
+    [ ] Blockchain
+    [ ] Crypto
+    [ ] Forensics
+    [ ] General
+    [ ] Reversing
+    [ ] Web
