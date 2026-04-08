@@ -1,19 +1,25 @@
 # HexStrike-AI CTF Evaluation — Prompt Folder
 
 ## What this is
-Pre-built prompt sequences for running HexStrike-AI evaluation experiments across PicoCTF challenges.
-529 exercises total: 88 challenges × 3 clients × 2 LLMs.
+264 exercises total: 88 challenges × 3 experiment variants × 1 Claude config + 88 × 3 × 3 DeepSeek configs.
+
+## Configurations
+| LLM      | Client     |
+|----------|------------|
+| Claude   | ClaudeCode |
+| DeepSeek | 5ire       |
+| DeepSeek | RooCode    |
+| DeepSeek | Trae       |
 
 ## Folder structure
-```
 LLM/
 └── Client/
     └── Category/
         └── Difficulty/
             └── Exercise/
                 └── Files/
-```
-**Example:** `Claude/Claude/Web/Easy/Cookies/Files/`
+
+Example: `Claude/ClaudeCode/Web/Easy/Cookies/Files/`
 
 ## Prompt structure
 Each exercise file contains two prompts sent in order:
