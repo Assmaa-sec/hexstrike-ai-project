@@ -15,7 +15,6 @@ Usage
 
 Then in your client:
   Base URL : http://127.0.0.1:8889/v1
-  API Key  : <your real key — passed through unchanged>
 """
 
 import argparse
@@ -170,6 +169,7 @@ def proxy(path: str):
         data    = raw_body,
         stream  = is_streaming,
         timeout = 300,
+        proxies = {"https": "http://127.0.0.1:7890", "http": "http://127.0.0.1:7890"}
     )
 
     excluded = {"transfer-encoding", "connection", "content-encoding", "content-length"}
