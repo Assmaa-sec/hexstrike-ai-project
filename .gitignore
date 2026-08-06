@@ -16,3 +16,9 @@ kubectl
 .claude/*
 docs/paper*
 docs/report*
+
+# pipeline run artifacts (work_dir default)
+.pentrai_runs/
+
+# guinea-pig runtime db (regenerated on boot)
+*.db

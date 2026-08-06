@@ -25,7 +25,7 @@ Model = suggested effort if building with Claude Code (Opus for the hard/securit
 | # | Phase | Owner | Model | Wt | Status | Manual input / verification needed |
 |---|-------|-------|-------|----|--------|-------------------------------------|
 | 0 | Scaffold (contracts, orchestrator, stubs, docs) | — | Opus | med | ✅ | Skim `ARCHITECTURE.md` + `contracts.py`, confirm design matches intent (verif #1) |
-| 1 | **Guinea pig** — vuln containerized web app + ground-truth `SOLUTIONS.md` | — | Sonnet | med | ⬜ | Docker running; eyeball that planted bugs are the classes we want |
+| 1 | **Guinea pig** — vuln containerized web app + ground-truth `SOLUTIONS.md` | — | Opus | med | ✅ | V1/V2 exploited live; Docker bring-up + V3/V4 runtime pending (verif #2–#4) |
 | 2 | `ingest` + `sandbox` — target runs, isolated, egress blocked · **make-or-break** | — | Opus | high | ⬜ | Docker/WSL; verify a target comes up **and** egress is actually cut |
 | 3 | `recon` + `pentrai_client` — reach the running target via the engine | — | Sonnet | med | ⬜ | `pentrai_server.py` running on `PENTRAI_SERVER_URL` |
 | 4 | `analyze_sca` — deps → CVE (deterministic) | — | Sonnet | low | ⬜ | `osv-scanner`/`trivy` installed |
@@ -103,6 +103,9 @@ Copy this template into [Phase logs](#phase-logs) and fill every field. Keep it 
 Batched — the product owner checks these in one pass, not per phase. Add a numbered item whenever a phase produces something only a human should sign off (a rendered report, a running target, a planted-bug set). Give enough detail to check it **cold**.
 
 1. **(Phase 0)** Read `docs/ARCHITECTURE.md`, `docs/THREAT_MODEL.md`, and `pentrai_pipeline/contracts.py` and confirm the pipeline shape, the posture=label-not-gate decision, and the typed artifacts match what we actually want before stages get built on top of them.
+2. **(Phase 1)** Build + run the guinea pig under Docker and confirm it serves on :8000 — `docker compose -f guinea_pig/target/docker-compose.yml up --build`. (Not exercised in the build environment; the app was proven with the host Python instead.)
+3. **(Phase 1)** V3 command injection — once the container is up (Linux), confirm `curl -s localhost:8000/diag/ping --get --data-urlencode "host=127.0.0.1; id"` returns `uid=...`. Code-evident + logic-reviewed; runtime proof needs a POSIX shell.
+4. **(Phase 1)** V4 SCA — spot-check that `osv-scanner`/`trivy` flags the pinned deps in `guinea_pig/target/requirements.txt` (Werkzeug 2.0.3, Jinja2 3.0.3, PyYAML 5.3.1, requests 2.25.1). Becomes automatic once Phase 4 lands.
 
 ---
 
@@ -132,3 +135,26 @@ Batched — the product owner checks these in one pass, not per phase. Add a num
 - **Verified (programmatic):** compile OK; import OK (v0.0.1); CLI `--help` OK; orchestrator smoke test flows `queued -> ingesting -> failed` and reports `stage not yet implemented: stages.ingest.ingest`; the unauthorized path refuses before any stage. Engine files (`pentrai_server.py`/`pentrai_mcp.py`) untouched.
 - **Pending manual verification:** item **#1** above (design/contract review).
 - **Known gaps / handoffs:** all 7 stages + both agents + `pentrai_client` + `LLMClient` are stubs (`NotImplementedError`); no guinea pig yet (Phase 1); Job store is in-memory (persistence lands with the web layer, Phase 9).
+
+### Phase 1 — Guinea pig  ✅
+- **Owner:** —   **Model:** Opus   **Date:** 2026-08-06   **Commit:** _Phase 1 commit (this change)_
+- **Goal:** a real, runnable, deliberately-vulnerable web app the later stages can attack, plus a ground-truth key that makes it the precision/recall eval harness.
+- **Built / changed:**
+  - `guinea_pig/target/app.py` — Flask "shop" API; 4 planted weakness classes + deliberate true-negatives.
+  - `guinea_pig/target/requirements.txt` — pinned to known-CVE versions (feeds SCA).
+  - `guinea_pig/target/{config.yaml,Dockerfile,docker-compose.yml,.dockerignore}` — safe config + container recipe (satisfies the ingest contract; no auto-build needed).
+  - `guinea_pig/SOLUTIONS.md` — ground-truth answer key, kept OUT of `target/` so it is never ingested.
+  - `guinea_pig/README.md` — harness doc + the two eval-integrity rules.
+  - `.gitignore` — ignore `*.db` (runtime sqlite regenerated on boot).
+- **Key decisions / deviations:** submit `target/` only (SOLUTIONS.md sits one level up, never ingested); **zero hints inside `target/`** so SAST gets a fair test; SQLite single-container for deterministic bring-up; deps chosen outdated-but-3.11-compatible so the app runs on `python:3.11-slim` and the logic is testable on the host; planted secret `AKIAIOSFODNN7EXAMPLE` matches the engine's `SECRET_PATTERNS`.
+- **Run / verify:**
+  ```bash
+  # local logic proof (V1/V2), no Docker:
+  python -m venv env && env/Scripts/pip install flask pyyaml
+  PORT=8017 env/Scripts/python guinea_pig/target/app.py &
+  curl -s localhost:8017/search --get --data-urlencode "q=%' UNION SELECT id, username||':'||password, role FROM users -- "
+  # full stack + V3 + SCA: docker compose -f guinea_pig/target/docker-compose.yml up --build
+  ```
+- **Verified (programmatic):** `py_compile` OK; **live V1 SQLi** exfiltrated alice/bob/admin credentials via the `/search` UNION payload (benign `?q=Widget` returns 1 row → injection confirmed); **live V2 BAC** returned all users + secret `AKIAIOSFODNN7EXAMPLE` to non-admin alice.
+- **Pending manual verification:** #2 (Docker bring-up), #3 (V3 cmd-injection on the Linux container), #4 (SCA flags the pinned deps).
+- **Known gaps / handoffs:** V3 and the full vulnerable-dep stack only run under Docker/Linux (proven at Phase 2). One vertical for now (Python/Flask web app); widen to Node/PHP + more classes later.

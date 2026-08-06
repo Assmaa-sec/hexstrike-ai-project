@@ -1,29 +1,60 @@
 # guinea_pig
 
-The deliberately-vulnerable target used to build and test the pipeline against
-something real. Building this is **part of the work**, alongside the `ingest` +
-`sandbox` stages — every later stage needs a live thing to run against.
+The deliberately-vulnerable target the pipeline is built and evaluated against.
+It gives every later stage something real to run on, and — with its ground-truth
+key — doubles as the **precision/recall eval harness**.
 
-## What it must be
+## Layout
 
-- A **containerized web app** (`Dockerfile` + `docker-compose.yml`) so it satisfies
-  the ingest contract (recipe required; no auto-build) and comes up cleanly in the
-  sandbox.
-- **Seeded with known, planted vulnerabilities**, one per class the pipeline claims
-  to find/validate — starting narrow:
-  - a boolean/error-based **SQL injection** on a reachable endpoint,
-  - a **missing authorization** check (an admin action reachable without the right
-    role) — the project's logic-bug sweet spot,
-  - a dependency with a **known CVE** (exercises the SCA engine),
-  - one **injection sink** (command/template) reachable from user input.
-- Each planted bug documented in a private `SOLUTIONS.md` (kept out of the image)
-  as **ground truth**, so the pipeline's output can be scored: did SAST find it, did
-  the live attack CONFIRM it, were there false positives/negatives?
+```
+guinea_pig/
+  README.md        this file            (eval harness — NOT ingested)
+  SOLUTIONS.md     ground-truth answer key (NOT ingested)
+  target/          <-- THIS is what you submit to the pipeline
+    app.py             Flask "shop" API with the planted weaknesses
+    requirements.txt   pinned to known-CVE versions (feeds SCA)
+    config.yaml        app config (loaded safely)
+    Dockerfile         satisfies the ingest contract (recipe required)
+    docker-compose.yml single-service bring-up
+    .dockerignore
+```
 
-## Why it matters beyond testing
+**Eval integrity — two hard rules:**
+1. Submit **`target/` only**. `SOLUTIONS.md` and this `README.md` sit one level up
+   and must never reach `ingest`, or the analysis phase reads the answers.
+2. **No hints inside `target/`.** The code looks like an ordinary app; the mapping
+   from bug → location lives solely in `SOLUTIONS.md`.
 
-It doubles as the **evaluation harness**: with ground-truth labels, a run over the
-guinea pig yields precision/recall for the analysis phase and a confirmed-vs-planted
-count for the exploitation phase — the numbers the thesis writeup needs.
+## What's planted (summary; details + validation in `SOLUTIONS.md`)
 
-Later: add more stacks (Node, PHP) and more vuln classes as the pipeline widens.
+| ID | Class | CWE | Engine it exercises |
+|----|-------|-----|---------------------|
+| V1 | SQL injection (`/search`) | CWE-89 | SAST + exploit |
+| V2 | Broken access control (`/admin/export`) | CWE-862 | SAST + exploit |
+| V3 | OS command injection (`/diag/ping`) | CWE-78 | SAST + exploit |
+| V4 | Vulnerable dependencies | CWE-1104 | SCA |
+
+Plus deliberate true-negatives (a parameterized `login()`, `yaml.safe_load`) so
+false positives can be measured.
+
+## Run it directly (sanity check, outside the pipeline)
+
+```bash
+docker compose -f guinea_pig/target/docker-compose.yml up --build
+```
+
+Then the target is on `http://localhost:8000`. Quick liveness + one exploit:
+
+```bash
+curl -s http://localhost:8000/ ; echo
+curl -s http://localhost:8000/search --get --data-urlencode "q=%' UNION SELECT id, username || ':' || password, role FROM users -- "
+```
+
+Local (no Docker) also works for the OS-independent bugs (V1/V2): `pip install
+flask pyyaml` then `python guinea_pig/target/app.py`. V3 (command injection) only
+demonstrates on a Linux target.
+
+## Next stacks (later)
+
+Add Node/PHP variants and more classes (SSTI, insecure deserialization, IDOR) as
+the pipeline widens beyond the first web-app vertical.
