@@ -38,6 +38,9 @@ class SandboxSettings:
     egress_allowlist: list[str] = field(default_factory=list)
     build_timeout_s: int = 900
     healthcheck_timeout_s: int = 120
+    # Image used to probe the target from INSIDE the sandbox network (healthchecks,
+    # reachability). Pulled on the host; runs on the isolated network with no egress.
+    probe_image: str = field(default_factory=lambda: os.getenv("PENTRAI_PROBE_IMAGE", "busybox"))
 
 
 @dataclass

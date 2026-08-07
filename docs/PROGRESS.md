@@ -25,8 +25,8 @@ Model = suggested effort if building with Claude Code (Opus for the hard/securit
 | # | Phase | Owner | Model | Wt | Status | Manual input / verification needed |
 |---|-------|-------|-------|----|--------|-------------------------------------|
 | 0 | Scaffold (contracts, orchestrator, stubs, docs) | — | Opus | med | ✅ | Skim `ARCHITECTURE.md` + `contracts.py`, confirm design matches intent (verif #1) |
-| 1 | **Guinea pig** — vuln containerized web app + ground-truth `SOLUTIONS.md` | — | Opus | med | ✅ | V1/V2 exploited live; Docker bring-up + V3/V4 runtime pending (verif #2–#4) |
-| 2 | `ingest` + `sandbox` — target runs, isolated, egress blocked · **make-or-break** | — | Opus | high | ⬜ | Docker/WSL; verify a target comes up **and** egress is actually cut |
+| 1 | **Guinea pig** — vuln containerized web app + ground-truth `SOLUTIONS.md` | — | Opus | med | ✅ | V1/V2/V3 exploited live; Docker bring-up done in Phase 2; V4 (SCA) waits for Phase 4 |
+| 2 | `ingest` + `sandbox` — target runs, isolated, egress blocked · **make-or-break** | — | Opus | high | ✅ | Verified live here (Docker Desktop): guinea pig built, isolated, egress cut, torn down clean |
 | 3 | `recon` + `pentrai_client` — reach the running target via the engine | — | Sonnet | med | ⬜ | `pentrai_server.py` running on `PENTRAI_SERVER_URL` |
 | 4 | `analyze_sca` — deps → CVE (deterministic) | — | Sonnet | low | ⬜ | `osv-scanner`/`trivy` installed |
 | 5 | `analyze_sast` — LLM logic/authz, injection-hardened | — | Opus | high | ⬜ | LLM endpoint (`llm_proxy` + key) |
@@ -103,9 +103,9 @@ Copy this template into [Phase logs](#phase-logs) and fill every field. Keep it 
 Batched — the product owner checks these in one pass, not per phase. Add a numbered item whenever a phase produces something only a human should sign off (a rendered report, a running target, a planted-bug set). Give enough detail to check it **cold**.
 
 1. **(Phase 0)** Read `docs/ARCHITECTURE.md`, `docs/THREAT_MODEL.md`, and `pentrai_pipeline/contracts.py` and confirm the pipeline shape, the posture=label-not-gate decision, and the typed artifacts match what we actually want before stages get built on top of them.
-2. **(Phase 1)** Build + run the guinea pig under Docker and confirm it serves on :8000 — `docker compose -f guinea_pig/target/docker-compose.yml up --build`. (Not exercised in the build environment; the app was proven with the host Python instead.)
-3. **(Phase 1)** V3 command injection — once the container is up (Linux), confirm `curl -s localhost:8000/diag/ping --get --data-urlencode "host=127.0.0.1; id"` returns `uid=...`. Code-evident + logic-reviewed; runtime proof needs a POSIX shell.
-4. **(Phase 1)** V4 SCA — spot-check that `osv-scanner`/`trivy` flags the pinned deps in `guinea_pig/target/requirements.txt` (Werkzeug 2.0.3, Jinja2 3.0.3, PyYAML 5.3.1, requests 2.25.1). Becomes automatic once Phase 4 lands.
+2. ~~(Phase 1) Build + run the guinea pig under Docker~~ — **✅ resolved in Phase 2**: built via `ingest`→`sandbox` and reachable on the internal net (Docker Desktop 29.1.3).
+3. ~~(Phase 1) V3 command injection on a Linux target~~ — **✅ resolved in Phase 2**: returned `uid=0(root)` through the sandbox.
+4. **(Phase 1/4)** V4 SCA — spot-check that `osv-scanner`/`trivy` flags the pinned deps in `guinea_pig/target/requirements.txt` (Werkzeug 2.0.3, Jinja2 3.0.3, requests 2.25.1 + urllib3). Becomes automatic once Phase 4 lands.
 
 ---
 
@@ -158,3 +158,17 @@ Batched — the product owner checks these in one pass, not per phase. Add a num
 - **Verified (programmatic):** `py_compile` OK; **live V1 SQLi** exfiltrated alice/bob/admin credentials via the `/search` UNION payload (benign `?q=Widget` returns 1 row → injection confirmed); **live V2 BAC** returned all users + secret `AKIAIOSFODNN7EXAMPLE` to non-admin alice.
 - **Pending manual verification:** #2 (Docker bring-up), #3 (V3 cmd-injection on the Linux container), #4 (SCA flags the pinned deps).
 - **Known gaps / handoffs:** V3 and the full vulnerable-dep stack only run under Docker/Linux (proven at Phase 2). One vertical for now (Python/Flask web app); widen to Node/PHP + more classes later.
+
+### Phase 2 — ingest + sandbox  ✅
+- **Owner:** —   **Model:** Opus   **Date:** 2026-08-06   **Commit:** _Phase 2 commit (this change)_
+- **Goal:** the make-or-break — get a submitted codebase built and running inside an isolated, egress-off container the later stages can reach, then torn down cleanly.
+- **Built / changed:**
+  - `pentrai_pipeline/stages/ingest.py` — normalize folder/zip/git → src tree; detect stack; **require** a Dockerfile/compose recipe (no auto-build); best-effort exposed-port extraction; zip-slip guard.
+  - `pentrai_pipeline/stages/sandbox.py` — `deploy()` builds the image and runs it on a Docker network created `--internal` (Dockerfile) or via a compose `networks.default.internal: true` override (compose); healthcheck + reachability via a throwaway probe container on the same net; `teardown()` idempotent (containers by compose-project label + our own, networks, volumes, built image).
+  - `pentrai_pipeline/config.py` — `SandboxSettings.probe_image` (default `busybox`).
+  - **guinea-pig build fix:** dropped PyYAML (C-extension, no wheel for a slim base → build wall) → config now stdlib `json`; base `python:3.11-slim` → `python:3.9-slim` to match the pinned old Flask. Touched `guinea_pig/target/{app.py,config.json (was config.yaml),requirements.txt,Dockerfile}` + SOLUTIONS.md/README.md. Still 4 planted classes; V4 SCA deps now Werkzeug/Jinja2/requests(+urllib3).
+- **Key decisions / deviations:** isolation = internal Docker network (keeps embedded DNS for name-based reachability, cuts internet). Build runs on the host daemon (has internet for base image + pip); only the target's *runtime* network is isolated. Target is NOT published to a host port — later stages reach it via a container on `network_name`. Scope: single-service targets; multi-service compose topology is a later refinement. Forced UTF-8 on all subprocess I/O (Windows cp1252 was crashing a log-read thread).
+- **Run / verify:** `PENTRAI_WORK_DIR=<tmp> python <scratch>/verify_phase2.py` — ingest → deploy → exploit-via-sandbox → teardown against `guinea_pig/target/`.
+- **Verified (programmatic, live Docker):** INGEST detected `python/flask` + compose + port 8000; DEPLOY built + ran the guinea pig, healthcheck passed; through the sandbox net — REACH `/` OK, **V1 SQLi** leaked `alice:alice123`, **V3 cmd-injection** returned `uid=0(root)`; **egress cut** (`example.com` → bad address); TEARDOWN left zero containers/networks. Clean re-run, no errors.
+- **Pending manual verification:** none new — this phase *resolved* #2 and #3. #4 (SCA scanner over the deps) still waits for Phase 4.
+- **Known gaps / handoffs:** multi-service compose isolation not yet implemented (single-service only); egress `allowlist` not enforced (all-or-nothing via `--internal`); Phase 3 recon/exploit will run their tooling in a container attached to `network_name`.

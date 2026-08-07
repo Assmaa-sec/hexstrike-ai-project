@@ -13,7 +13,7 @@ guinea_pig/
   target/          <-- THIS is what you submit to the pipeline
     app.py             Flask "shop" API with the planted weaknesses
     requirements.txt   pinned to known-CVE versions (feeds SCA)
-    config.yaml        app config (loaded safely)
+    config.json        app config (loaded safely)
     Dockerfile         satisfies the ingest contract (recipe required)
     docker-compose.yml single-service bring-up
     .dockerignore
@@ -34,8 +34,8 @@ guinea_pig/
 | V3 | OS command injection (`/diag/ping`) | CWE-78 | SAST + exploit |
 | V4 | Vulnerable dependencies | CWE-1104 | SCA |
 
-Plus deliberate true-negatives (a parameterized `login()`, `yaml.safe_load`) so
-false positives can be measured.
+Plus deliberate true-negatives (a parameterized `login()`, stdlib `json` config
+parsing) so false positives can be measured.
 
 ## Run it directly (sanity check, outside the pipeline)
 
@@ -51,8 +51,8 @@ curl -s http://localhost:8000/search --get --data-urlencode "q=%' UNION SELECT i
 ```
 
 Local (no Docker) also works for the OS-independent bugs (V1/V2): `pip install
-flask pyyaml` then `python guinea_pig/target/app.py`. V3 (command injection) only
-demonstrates on a Linux target.
+flask` then `python guinea_pig/target/app.py`. V3 (command injection) only
+demonstrates on a Linux target (i.e. in the container).
 
 ## Next stacks (later)
 

@@ -74,19 +74,20 @@ whatever `osv-scanner`/`trivy` reports on this file; representative known issues
 |---------|--------|--------------------|
 | Werkzeug | 2.0.3 | CVE-2023-25577 (DoS), CVE-2023-23934 (cookie) |
 | Jinja2 | 3.0.3 | CVE-2024-22195 (SSTI via `xmlattr`) |
-| PyYAML | 5.3.1 | CVE-2020-14343 (arbitrary code exec via unsafe load) |
 | requests | 2.25.1 | CVE-2023-32681 (proxy-auth leak) |
 | (urllib3, pulled by requests) | 1.26.x | multiple, fixed in ≥1.26.18 |
 
-- **CONFIRMED** by SCA producing findings for these packages. Note: the app uses
-  `yaml.safe_load` (safe), so PyYAML is a *composition* finding, not a code sink —
-  a good test that SCA and SAST stay in their lanes.
+- **CONFIRMED** by SCA producing findings for these packages. All are pure-Python so
+  they install on a slim base with no compiler (an earlier PyYAML pin was dropped in
+  Phase 2 for exactly that reason). `requests` is a *composition* finding — declared,
+  its CVEs are in the package, not in a code sink — a good test that SCA and SAST
+  stay in their lanes.
 
 ## Intentional true-negatives (flagging these = false positive)
 - `login()` uses a **parameterized** query — NOT injectable.
-- `yaml.safe_load` in `load_config()` — NOT the unsafe `yaml.load`.
-- The `secrets`/`config.yaml` values are seeded test data, not a code weakness in
-  themselves.
+- `load_config()` uses stdlib `json.load` — a safe parser, no deserialization sink.
+- The `secrets` table / `config.json` values are seeded test data, not a code
+  weakness in themselves.
 
 ## Scoring
 Precision/recall for a run over `target/`:

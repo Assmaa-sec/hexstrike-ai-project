@@ -1,18 +1,18 @@
+import json
 import os
 import sqlite3
 import subprocess
 
-import yaml
 from flask import Flask, request, session, jsonify, g
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "shop.db")
-CONFIG_PATH = os.path.join(BASE_DIR, "config.yaml")
+CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 
 
 def load_config():
     with open(CONFIG_PATH) as fh:
-        return yaml.safe_load(fh) or {}
+        return json.load(fh)
 
 
 config = load_config()
