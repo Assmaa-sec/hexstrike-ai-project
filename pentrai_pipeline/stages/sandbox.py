@@ -1,24 +1,28 @@
 """
 Stage 2 — SANDBOX (deploy + teardown).
 
-Build the target from its recipe and run it inside an ISOLATED, egress-controlled
-network. This is the containment boundary of the whole product; see
+Build the target from its recipe and run it inside an ISOLATED, egress-controlled,
+hardened container. This is the containment boundary of the whole product; see
 docs/THREAT_MODEL.md.
 
-Isolation model (v1): the target runs on a dedicated Docker network created with
-`--internal` (for a Dockerfile) or with a compose override `networks.default.internal:
-true` (for compose). An internal network keeps Docker's embedded DNS — so other
-containers on it can reach the target by name — while cutting all routes to the
-public internet. The target is NOT published to a host port; recon/exploit reach it
-by running their tooling in a container attached to `network_name`. Health and
-reachability are checked with a throwaway probe container on that same network.
+Isolation model:
+  * Network: a dedicated Docker network created `--internal` (Dockerfile) or via a
+    compose override `networks.default.internal: true` (compose). Internal networks
+    keep Docker's embedded DNS — containers on them reach each other by name — while
+    cutting every route to the public internet. The target is NOT published to a host
+    port; recon/exploit reach it from a container attached to `network_name`.
+  * Runtime hardening (limits the blast radius of running a stranger's code):
+    `--cap-drop ALL`, `--security-opt no-new-privileges`, and pids/memory/cpu limits
+    (SandboxSettings). Applied to the single-container run and to every service in
+    the compose override.
+  * Build: the image BUILD runs on the host daemon (which has internet, to pull the
+    base image and install deps). That is a residual risk — build-time code executes
+    on the host — addressed in THREAT_MODEL.md; `build_network` can cut build egress
+    for targets that vendor their dependencies.
 
-The image BUILD happens on the host daemon (which has internet, to pull the base
-image and install deps); only the target's RUNTIME network is isolated.
-
-Scope: single-service targets (a Dockerfile, or a compose file whose services share
-one default network). Multi-service compose with bespoke internal topology is a
-later refinement. `teardown` is idempotent and always called by the orchestrator.
+Multi-service compose is supported: all services come up on the internal network and
+are hardened; the target URL points at the port-publishing (web-facing) service.
+`teardown` is idempotent and always called by the orchestrator.
 """
 
 from __future__ import annotations
@@ -40,7 +44,8 @@ class SandboxError(RuntimeError):
 # --- subprocess helpers ------------------------------------------------------
 
 def _run(args, timeout, check=True):
-    proc = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
+    proc = subprocess.run(args, capture_output=True, text=True,
+                          encoding="utf-8", errors="replace", timeout=timeout)
     if check and proc.returncode != 0:
         raise SandboxError(f"`{' '.join(args)}` failed ({proc.returncode}):\n"
                            f"{(proc.stderr or proc.stdout).strip()}")
@@ -49,14 +54,16 @@ def _run(args, timeout, check=True):
 
 def _quiet(args, timeout=60):
     try:
-        subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
+        subprocess.run(args, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", timeout=timeout)
     except Exception:
         pass
 
 
 def _capture(args, timeout=60):
     try:
-        return subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout).stdout
+        return subprocess.run(args, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", timeout=timeout).stdout
     except Exception:
         return ""
 
@@ -98,7 +105,11 @@ def _deploy_single(ingest, settings, token, logs_dir) -> DeployedTarget:
         image = f"{token}:latest"
         dockerfile = ingest.container_ref
         context = str(Path(dockerfile).parent)
-        _run([docker, "build", "-t", image, "-f", dockerfile, context], timeout=sb.build_timeout_s)
+        build = [docker, "build", "-t", image, "-f", dockerfile]
+        if sb.build_network:
+            build += ["--network", sb.build_network]
+        build.append(context)
+        _run(build, timeout=sb.build_timeout_s)
 
     net_args = [docker, "network", "create"]
     if not sb.allow_egress:
@@ -107,7 +118,10 @@ def _deploy_single(ingest, settings, token, logs_dir) -> DeployedTarget:
     _run(net_args, timeout=60)
 
     # No host port published: the target is reachable only from inside the network.
-    _run([docker, "run", "-d", "--name", token, "--network", net, image], timeout=120)
+    run = [docker, "run", "-d", "--name", token, "--network", net]
+    run += _hardening_run_flags(sb)
+    run.append(image)
+    _run(run, timeout=120)
     cid = _capture([docker, "inspect", "-f", "{{.Id}}", token]).strip()
 
     return DeployedTarget(
@@ -124,18 +138,20 @@ def _deploy_compose(ingest, settings, token, logs_dir) -> DeployedTarget:
     sb = settings.sandbox
     docker = sb.docker_bin
     recipe = ingest.container_ref
+    services = _compose_services(recipe)  # [(name, container_port|None)] in file order
     files = ["-f", recipe]
 
-    # Egress off: make the default network internal WITHOUT editing the original recipe.
-    if not sb.allow_egress:
-        override = logs_dir / "pentrai-egress-off.yml"
-        override.write_text("networks:\n  default:\n    internal: true\n")
-        files += ["-f", str(override)]
+    # Isolation + hardening applied WITHOUT editing the original recipe.
+    override = _compose_override(services, sb)
+    if override:
+        path = logs_dir / "pentrai-sandbox.yml"
+        path.write_text(override)
+        files += ["-f", str(path)]
 
     _run([docker, "compose", *files, "-p", token, "up", "-d", "--build"], timeout=sb.build_timeout_s)
 
     ids = _capture([docker, "compose", "-p", token, "ps", "-q"]).split()
-    service, port = _compose_service_and_port(recipe, ingest)
+    service, port = _target_service(services, ingest)
 
     return DeployedTarget(
         internal_base_url=f"http://{service}:{port}",
@@ -145,6 +161,56 @@ def _deploy_compose(ingest, settings, token, logs_dir) -> DeployedTarget:
         teardown_token=token,
         logs_dir=str(logs_dir),
     )
+
+
+# --- hardening ---------------------------------------------------------------
+
+def _hardening_run_flags(sb):
+    flags = []
+    for cap in sb.cap_drop:
+        flags += ["--cap-drop", cap]
+    for cap in sb.cap_add:
+        flags += ["--cap-add", cap]
+    if sb.no_new_privileges:
+        flags += ["--security-opt", "no-new-privileges:true"]
+    if sb.pids_limit:
+        flags += ["--pids-limit", str(sb.pids_limit)]
+    if sb.memory_limit:
+        flags += ["--memory", sb.memory_limit]
+    if sb.cpu_limit:
+        flags += ["--cpus", sb.cpu_limit]
+    return flags
+
+
+def _compose_override(services, sb) -> str:
+    """A compose override that hardens every service and makes the default network
+    internal — layered on top of the original recipe, which is never modified."""
+    lines = []
+    hardening = sb.cap_drop or sb.cap_add or sb.no_new_privileges or sb.pids_limit \
+        or sb.memory_limit or sb.cpu_limit
+    if services and hardening:
+        lines.append("services:")
+        for name, _port in services:
+            lines.append(f"  {name}:")
+            if sb.cap_drop:
+                lines.append("    cap_drop:")
+                for cap in sb.cap_drop:
+                    lines.append(f"      - {cap}")
+            if sb.cap_add:
+                lines.append("    cap_add:")
+                for cap in sb.cap_add:
+                    lines.append(f"      - {cap}")
+            if sb.no_new_privileges:
+                lines += ["    security_opt:", "      - no-new-privileges:true"]
+            if sb.pids_limit:
+                lines.append(f"    pids_limit: {sb.pids_limit}")
+            if sb.memory_limit:
+                lines.append(f"    mem_limit: {sb.memory_limit}")
+            if sb.cpu_limit:
+                lines.append(f"    cpus: {sb.cpu_limit}")
+    if not sb.allow_egress:
+        lines += ["networks:", "  default:", "    internal: true"]
+    return "\n".join(lines) + "\n" if lines else ""
 
 
 # --- health + logs -----------------------------------------------------------
@@ -207,7 +273,7 @@ def teardown(deployed: DeployedTarget, settings: Settings) -> None:
     _quiet([docker, "rmi", "-f", f"{token}:latest"])
 
 
-# --- helpers -----------------------------------------------------------------
+# --- compose parsing ---------------------------------------------------------
 
 def _first_port(ingest: IngestResult):
     for entry in ingest.entrypoints:
@@ -216,12 +282,48 @@ def _first_port(ingest: IngestResult):
     return None
 
 
-def _compose_service_and_port(recipe, ingest):
-    """First service name under `services:` (its DNS alias on the compose network) and
-    the container port to hit."""
-    text = Path(recipe).read_text(errors="ignore")
-    service = "app"
-    m = re.search(r"(?ms)^services:[ \t]*\n(?:[ \t]*\n|[ \t]*#.*\n)*[ \t]+([A-Za-z0-9._-]+):", text)
-    if m:
-        service = m.group(1)
-    return service, (_first_port(ingest) or 8000)
+def _compose_services(recipe):
+    """[(service_name, first_container_port|None)] in file order — a light structural
+    walk of the `services:` block (no YAML dependency)."""
+    try:
+        text = Path(recipe).read_text(errors="ignore")
+    except OSError:
+        return []
+    result = []
+    in_services = False
+    base_indent = None
+    cur = None
+    cur_port = None
+    for line in text.splitlines():
+        if re.match(r"^services:\s*$", line):
+            in_services = True
+            continue
+        if not in_services:
+            continue
+        if re.match(r"^\S", line):  # dedent to top level => services block ended
+            break
+        m = re.match(r"^(\s+)([A-Za-z0-9._-]+):\s*$", line)
+        if m and (base_indent is None or len(m.group(1)) == base_indent):
+            if base_indent is None:
+                base_indent = len(m.group(1))
+            if cur is not None:
+                result.append((cur, cur_port))
+            cur, cur_port = m.group(2), None
+            continue
+        if cur is not None and cur_port is None:
+            pm = re.search(r"(\d{2,5})\s*:\s*(\d{2,5})", line)
+            if pm:
+                cur_port = int(pm.group(2))
+    if cur is not None:
+        result.append((cur, cur_port))
+    return result
+
+
+def _target_service(services, ingest):
+    """The web-facing entry: prefer a service that publishes a port; else the first."""
+    for name, port in services:
+        if port:
+            return name, port
+    if services:
+        return services[0][0], (_first_port(ingest) or 8000)
+    return "app", (_first_port(ingest) or 8000)

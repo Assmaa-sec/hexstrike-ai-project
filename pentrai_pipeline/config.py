@@ -42,6 +42,24 @@ class SandboxSettings:
     # reachability). Pulled on the host; runs on the isolated network with no egress.
     probe_image: str = field(default_factory=lambda: os.getenv("PENTRAI_PROBE_IMAGE", "busybox"))
 
+    # Runtime hardening for the (untrusted) target container — limits the blast
+    # radius of running a stranger's code. See docs/THREAT_MODEL.md.
+    # Capabilities dropped from / added to the target. Default drops NET_RAW (raw
+    # sockets — low-breakage, most apps don't need it) on top of Docker's already
+    # limited default set. Dropping ALL is NOT the default: it breaks common images
+    # (nginx needs SETUID/SETGID/NET_BIND_SERVICE just to start). For a cooperative
+    # target you can lock down harder: cap_drop=["ALL"], cap_add the few it needs.
+    cap_drop: list = field(default_factory=lambda: ["NET_RAW"])
+    cap_add: list = field(default_factory=list)
+    no_new_privileges: bool = True     # docker: --security-opt no-new-privileges
+    pids_limit: int = 512
+    memory_limit: str = "512m"         # docker: --memory
+    cpu_limit: str = "1.0"             # docker: --cpus
+    # Network for the BUILD step. "" = docker default (has internet, needed for most
+    # dependency installs); "none" for targets that vendor their deps. Build-time
+    # code runs on the host daemon and is a residual risk — see THREAT_MODEL.md.
+    build_network: str = ""
+
 
 @dataclass
 class Settings:

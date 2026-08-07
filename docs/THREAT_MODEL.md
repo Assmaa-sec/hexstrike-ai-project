@@ -17,12 +17,31 @@ injection).
 
 The ingested repo is untrusted and we *build and run* it.
 
-- **Contain it.** The target runs only inside a per-job sandbox (`stages/sandbox.py`)
-  with no privileged access to the host. Treat the built image as hostile.
+- **Contain the *running* target.** It runs inside a per-job sandbox
+  (`stages/sandbox.py`) that is hardened to shrink the blast radius: dropped
+  capabilities (`NET_RAW` by default — no raw sockets — on top of Docker's already
+  limited default set, with a full `cap_drop: ALL` lockdown available for cooperative
+  targets), `--security-opt no-new-privileges` (blocks setuid escalation), and
+  pids/memory/cpu limits (no fork-bomb or resource exhaustion of the host), all on an
+  internal, egress-off network and never published to a host port. Treat the built
+  image as hostile. (Dropping *all* caps is not the default because it breaks common
+  images — e.g. nginx needs SETUID/SETGID/NET_BIND_SERVICE just to start.)
 - **No auto-build of arbitrary repos.** Ingest requires a container recipe
   (Dockerfile / compose / prebuilt image). This is a robustness decision *and* a
   safety one: we run what the recipe declares, in a container, not arbitrary build
   steps discovered by inference.
+- **⚠️ Build-time is the weak point, and hardening the runtime does NOT fix it.**
+  `docker build` / `compose build` execute the repo's Dockerfile directives and
+  dependency installs (`pip`/`npm`/… — which run arbitrary install-time code) **on
+  the host daemon, with network**, *before* any of the runtime isolation above
+  applies. A hostile repo can therefore run code on the build host. The runtime
+  controls limit what the *running* target can do; they do not sandbox the build.
+  Mitigations, in order of strength: (1) run the Docker daemon **rootless**, or build
+  inside a disposable microVM (gVisor / Kata / Firecracker) so build-time code is
+  contained too — this is the production posture and is an infrastructure choice, not
+  a code fix; (2) `SandboxSettings.build_network = "none"` cuts build-time egress for
+  targets that vendor their dependencies. This residual risk is accepted and called
+  out here rather than hidden.
 - **Ephemeral + torn down.** The orchestrator always calls `sandbox.teardown` in a
   `finally` block; containers, networks and volumes are destroyed per job.
 
